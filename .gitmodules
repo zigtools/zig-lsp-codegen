@@ -1,0 +1,3 @@
+[submodule "libs/tres"]
+	path = libs/tres
+	url = https://github.com/ziglibs/tres
