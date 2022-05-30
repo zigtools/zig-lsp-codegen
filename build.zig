@@ -26,10 +26,17 @@ pub fn build(b: *std.build.Builder) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const exe_tests = b.addTest("src/main.zig");
-    exe_tests.setTarget(target);
-    exe_tests.setBuildMode(mode);
+    const test_step = b.step("test", "Run all the tests");
+    test_step.dependOn(b.getInstallStep());
 
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&exe_tests.step);
+    const tests = b.addTest("tests/tests.zig");
+    tests.addPackagePath("tres", "libs/tres/tres.zig");
+    tests.addPackage(.{
+        .name = "lsp",
+        .source = .{ .path = "lsp.zig" },
+        .dependencies = exe.packages.items,
+    });
+    tests.setTarget(target);
+    tests.setBuildMode(mode);
+    test_step.dependOn(&tests.step);
 }

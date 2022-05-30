@@ -35,7 +35,7 @@ fn writeDocs(writer: anytype, docs: []const u8) !void {
     while (iterator.next()) |line| try writer.print("/// {s}\n", .{line});
 }
 
-fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
+fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i: usize) anyerror!void {
     switch (typ) {
         .BaseType => |base| try switch (base.name) {
             .Uri => writer.writeAll("uri"),
@@ -45,23 +45,30 @@ fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) an
             .RegExp => writer.writeAll("regexp"),
             .string => writer.writeAll("string"),
             .boolean => writer.writeAll("bool"),
-            .@"null" => writer.writeAll("@\"null\""),
+            .@"null" => @panic("Impossible!"),
         },
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
         .ArrayType => |arr| {
             try writer.writeAll("array_of_");
-            try guessTypeName(meta_model, writer, arr.element.*);
+            try guessTypeName(meta_model, writer, arr.element.*, 0);
         },
-        .MapType => try writer.writeAll("map"),
-        .OrType => try writer.writeAll("ort"),
-        .TupleType => try writer.writeAll("tuple"),
+        .MapType => try writer.print("map_{d}", .{i}),
+        .OrType => try writer.print("or_{d}", .{i}),
+        .TupleType => try writer.print("tuple_{d}", .{i}),
         .StructureLiteralType,
         .StringLiteralType,
         .IntegerLiteralType,
         .BooleanLiteralType,
-        => try writer.writeAll("literal"),
+        => try writer.print("literal_{d}", .{i}),
         else => @panic("Impossible!"),
     }
+}
+
+fn isOrActuallyEnum(ort: MetaModel.OrType) bool {
+    for (ort.items) |t| {
+        if (t != .StringLiteralType) return false;
+    }
+    return true;
 }
 
 fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
@@ -74,8 +81,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             .RegExp => writer.writeAll("RegExp"),
             .string => writer.writeAll("[]const u8"),
             .boolean => writer.writeAll("bool"),
-            // TODO: Handle this indicating an optional
-            .@"null" => writer.writeAll("NullType"),
+            .@"null" => @panic("Impossible!"),
         },
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
         .ArrayType => |arr| {
@@ -100,14 +106,28 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
         // This doesn't appear anywhere so it doesn't need to be implemented!
         .AndType => @panic("Impossible!"),
         .OrType => |ort| {
-            try writer.writeAll("union(enum) {");
-            for (ort.items) |sub_type| {
-                try guessTypeName(meta_model, writer, sub_type);
-                try writer.writeAll(": ");
-                try writeType(meta_model, writer, sub_type);
-                try writer.writeAll(",\n");
+            // NOTE: Hack to get optionals working
+            // There are no triple optional ors (I believe),
+            // so this should work every time
+            if (ort.items.len == 2 and ort.items[1] == .BaseType and ort.items[1].BaseType.name == .@"null") {
+                try writer.writeByte('?');
+                try writeType(meta_model, writer, ort.items[0]);
+            } else if (isOrActuallyEnum(ort)) {
+                try writer.writeAll("enum {");
+                for (ort.items) |sub_type| {
+                    try writer.print("{s},\n", .{sub_type.StringLiteralType.value});
+                }
+                try writer.writeByte('}');
+            } else {
+                try writer.writeAll("union(enum) {");
+                for (ort.items) |sub_type, i| {
+                    try guessTypeName(meta_model, writer, sub_type, i);
+                    try writer.writeAll(": ");
+                    try writeType(meta_model, writer, sub_type);
+                    try writer.writeAll(",\n");
+                }
+                try writer.writeByte('}');
             }
-            try writer.writeByte('}');
         },
         .TupleType => |tup| {
             try writer.writeAll("std.meta.Tuple(&[_]type {");
@@ -241,13 +261,13 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
     try writer.writeAll(
         \\// Notifications
         \\
-        \\pub const Notification = union(enum) { 
+        \\pub const NotificationParams = union(enum) { 
         \\
         \\pub const registration_options = .{
         \\
     );
     for (meta_model.notifications) |notification| {
-        try writer.print(".{{Notification.{s}, ", .{std.zig.fmtId(notification.method)});
+        try writer.print(".{{NotificationParams.{s}, ", .{std.zig.fmtId(notification.method)});
         if (notification.registrationOptions.asOptional()) |options|
             try writeType(meta_model, writer, options)
         else
