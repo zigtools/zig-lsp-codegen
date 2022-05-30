@@ -4,6 +4,12 @@ const std = @import("std");
 const tres = @import("tres");
 const Undefinedable = tres.Undefinedable;
 
+/// URI’s are transferred as strings.
+/// The URI’s format is defined in <https://tools.ietf.org/html/rfc3986>
 pub const Uri = []const u8;
+/// The URI of a document
 pub const DocumentUri = []const u8;
+/// A JavaScript regular expression; never used
 pub const RegExp = []const u8;
+/// A JSON `null` literal
+pub const NullType = ?void;

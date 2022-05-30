@@ -25,12 +25,43 @@ pub fn main() anyerror!void {
     var out_file = try std.fs.cwd().createFile("lsp.zig", .{});
     defer out_file.close();
 
-    try writeMetaModel(out_file.writer(), meta_model);
+    var bufw = std.io.bufferedWriter(out_file.writer());
+    try writeMetaModel(bufw.writer(), meta_model);
+    try bufw.flush();
 }
 
 fn writeDocs(writer: anytype, docs: []const u8) !void {
     var iterator = std.mem.split(u8, docs, "\n");
     while (iterator.next()) |line| try writer.print("/// {s}\n", .{line});
+}
+
+fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
+    switch (typ) {
+        .BaseType => |base| try switch (base.name) {
+            .Uri => writer.writeAll("uri"),
+            .DocumentUri => writer.writeAll("document_uri"),
+            .integer => writer.writeAll("integer"),
+            .uinteger, .decimal => writer.writeAll("uinteger"),
+            .RegExp => writer.writeAll("regexp"),
+            .string => writer.writeAll("string"),
+            .boolean => writer.writeAll("bool"),
+            .@"null" => writer.writeAll("@\"null\""),
+        },
+        .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
+        .ArrayType => |arr| {
+            try writer.writeAll("array_of");
+            try guessTypeName(meta_model, writer, arr.element.*);
+        },
+        .MapType => try writer.writeAll("map"),
+        .OrType => try writer.writeAll("ort"),
+        .TupleType => try writer.writeAll("tuple"),
+        .StructureLiteralType,
+        .StringLiteralType,
+        .IntegerLiteralType,
+        .BooleanLiteralType,
+        => try writer.writeAll("literal"),
+        else => @panic("Impossible!"),
+    }
 }
 
 fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
@@ -43,6 +74,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             .RegExp => writer.writeAll("RegExp"),
             .string => writer.writeAll("[]const u8"),
             .boolean => writer.writeAll("bool"),
+            // TODO: Handle this indicating an optional
             .@"null" => writer.writeAll("NullType"),
         },
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
@@ -69,9 +101,9 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
         .AndType => @panic("Impossible!"),
         .OrType => |ort| {
             try writer.writeAll("union(enum) {");
-            for (ort.items) |sub_type, i| {
-                // TODO: Name this to the best of our ability
-                try writer.print("unnamed_{d}: ", .{i});
+            for (ort.items) |sub_type| {
+                try guessTypeName(meta_model, writer, sub_type);
+                try writer.writeAll(": ");
                 try writeType(meta_model, writer, sub_type);
                 try writer.writeAll(",\n");
             }
