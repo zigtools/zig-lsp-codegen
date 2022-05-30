@@ -49,7 +49,7 @@ fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) an
         },
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
         .ArrayType => |arr| {
-            try writer.writeAll("array_of");
+            try writer.writeAll("array_of_");
             try guessTypeName(meta_model, writer, arr.element.*);
         },
         .MapType => try writer.writeAll("map"),
@@ -67,7 +67,7 @@ fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) an
 fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
     switch (typ) {
         .BaseType => |base| try switch (base.name) {
-            .Uri => writer.writeAll("Uri"),
+            .Uri => writer.writeAll("URI"),
             .DocumentUri => writer.writeAll("DocumentUri"),
             .integer => writer.writeAll("i64"),
             .uinteger, .decimal => writer.writeAll("u64"),
@@ -197,14 +197,28 @@ fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.
 pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
     try writer.writeAll(@embedFile("base.zig") ++ "\n");
 
+    try writer.writeAll("// Type Aliases\n\n");
+    for (meta_model.typeAliases) |alias| {
+        if (std.mem.startsWith(u8, alias.name, "LSP")) continue;
+
+        if (alias.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+        try writer.print("pub const {s} = ", .{std.zig.fmtId(alias.name)});
+        try writeType(meta_model, writer, alias.type);
+        try writer.writeAll(";\n\n");
+    }
+
+    try writer.writeAll("// Enumerations\n\n");
     for (meta_model.enumerations) |enumeration| {
         if (enumeration.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("pub const {s} = enum {{\n", .{std.zig.fmtId(enumeration.name)});
+        switch (enumeration.type.name) {
+            .string => try writer.print("pub const {s} = enum {{\n", .{std.zig.fmtId(enumeration.name)}),
+            .integer => try writer.print("pub const {s} = enum(i64) {{\n", .{std.zig.fmtId(enumeration.name)}),
+        }
 
         for (enumeration.values) |entry| {
             if (entry.documentation.asOptional()) |docs| try writeDocs(writer, docs);
             switch (entry.value) {
-                .string => try writer.print("{s},\n", .{std.zig.fmtId(entry.name)}), // TODO: Actually save the string value
+                .string => |value| try writer.print("{s},\n", .{std.zig.fmtId(value)}),
                 .number => |value| try writer.print("{s} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
             }
         }
@@ -212,7 +226,10 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         try writer.writeAll("};\n\n");
     }
 
+    try writer.writeAll("// Structures\n\n");
     for (meta_model.structures) |structure| {
+        if (std.mem.eql(u8, structure.name, "LSPObject")) continue;
+
         if (structure.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         try writer.print("pub const {s} = struct {{\n", .{std.zig.fmtId(structure.name)});
 
@@ -220,4 +237,33 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
 
         try writer.writeAll("};\n\n");
     }
+
+    try writer.writeAll(
+        \\// Notifications
+        \\
+        \\pub const Notification = union(enum) { 
+        \\
+        \\pub const registration_options = .{
+        \\
+    );
+    for (meta_model.notifications) |notification| {
+        try writer.print(".{{Notification.{s}, ", .{std.zig.fmtId(notification.method)});
+        if (notification.registrationOptions.asOptional()) |options|
+            try writeType(meta_model, writer, options)
+        else
+            try writer.writeAll("void");
+        try writer.writeAll("},\n");
+    }
+    try writer.writeAll("};\n\n");
+    for (meta_model.notifications) |notification| {
+        if (notification.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+        try writer.print("{s}: ", .{std.zig.fmtId(notification.method)});
+        if (notification.params.asOptional()) |params|
+            // NOTE: Multiparams not used here, so we dont have to implement them :)
+            try writeType(meta_model, writer, params.Type)
+        else
+            try writer.writeAll("void");
+        try writer.writeAll(",\n");
+    }
+    try writer.writeAll("};\n\n");
 }
