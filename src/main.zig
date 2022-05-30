@@ -65,10 +65,12 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             try writeType(meta_model, writer, map.value.*);
             try writer.writeByte(')');
         },
-        .AndType => try writer.writeAll("UnimplementedAndType"),
+        // This doesn't appear anywhere so it doesn't need to be implemented!
+        .AndType => @panic("Impossible!"),
         .OrType => |ort| {
             try writer.writeAll("union(enum) {");
             for (ort.items) |sub_type, i| {
+                // TODO: Name this to the best of our ability
                 try writer.print("unnamed_{d}: ", .{i});
                 try writeType(meta_model, writer, sub_type);
                 try writer.writeAll(",\n");
@@ -88,12 +90,27 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             for (lit.value.properties) |property| try writeProperty(meta_model, writer, property);
             try writer.writeAll("\n}");
         },
-        else => try writer.writeAll("UnimplementedType"),
+        .StringLiteralType => |lit| {
+            try writer.print("[]const u8 = \"{s}\"", .{lit.value});
+        },
+        .IntegerLiteralType => |lit| {
+            try writer.print("i64 = {d}", .{lit.value});
+        },
+        .BooleanLiteralType => |lit| {
+            try writer.print("bool = {s}", .{lit.value});
+        },
     }
 }
 
 fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) anyerror!void {
     if (property.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    switch (property.type) {
+        .StringLiteralType,
+        .IntegerLiteralType,
+        .BooleanLiteralType,
+        => try writer.writeAll("comptime "),
+        else => {},
+    }
     try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
     if (property.optional.asOptional()) |op| if (op) try writer.writeAll("Undefinedable(");
     try writeType(meta_model, writer, property.type);
