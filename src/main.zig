@@ -75,17 +75,34 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             }
             try writer.writeByte('}');
         },
+        .TupleType => |tup| {
+            try writer.writeAll("std.meta.Tuple(&[_]type {");
+            for (tup.items) |t, i| {
+                try writeType(meta_model, writer, t);
+                if (tup.items.len - 1 != i) try writer.writeAll(", ");
+            }
+            try writer.writeAll("})");
+        },
+        .StructureLiteralType => |lit| {
+            try writer.writeAll("struct {\n");
+            for (lit.value.properties) |property| try writeProperty(meta_model, writer, property);
+            try writer.writeAll("\n}");
+        },
         else => try writer.writeAll("UnimplementedType"),
     }
 }
 
+fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) anyerror!void {
+    if (property.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
+    if (property.optional.asOptional()) |op| if (op) try writer.writeAll("Undefinedable(");
+    try writeType(meta_model, writer, property.type);
+    if (property.optional.asOptional()) |op| if (op) try writer.writeAll(")");
+    try writer.writeAll(",\n");
+}
+
 fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.Structure) anyerror!void {
-    for (structure.properties) |property| {
-        if (property.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
-        try writeType(meta_model, writer, property.type);
-        try writer.writeAll(",\n");
-    }
+    for (structure.properties) |property| try writeProperty(meta_model, writer, property);
 
     if (structure.extends.asOptional()) |extends| {
         for (extends) |ext| {
