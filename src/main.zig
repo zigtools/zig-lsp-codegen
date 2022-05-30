@@ -33,7 +33,7 @@ fn writeDocs(writer: anytype, docs: []const u8) !void {
     while (iterator.next()) |line| try writer.print("/// {s}\n", .{line});
 }
 
-fn writeType(writer: anytype, typ: MetaModel.Type) anyerror!void {
+fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
     switch (typ) {
         .BaseType => |base| try switch (base.name) {
             .Uri => writer.writeAll("Uri"),
@@ -48,7 +48,7 @@ fn writeType(writer: anytype, typ: MetaModel.Type) anyerror!void {
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
         .ArrayType => |arr| {
             try writer.writeAll("[]");
-            try writeType(writer, arr.element.*);
+            try writeType(meta_model, writer, arr.element.*);
         },
         .MapType => |map| {
             try writer.writeAll("std.AutoHashMap(");
@@ -59,10 +59,10 @@ fn writeType(writer: anytype, typ: MetaModel.Type) anyerror!void {
                     .integer => writer.writeAll("i64"),
                     .string => writer.writeAll("[]const u8"),
                 },
-                .ReferenceType => |ref| try writeType(writer, .{ .ReferenceType = ref }),
+                .ReferenceType => |ref| try writeType(meta_model, writer, .{ .ReferenceType = ref }),
             }
             try writer.writeAll(", ");
-            try writeType(writer, map.value.*);
+            try writeType(meta_model, writer, map.value.*);
             try writer.writeByte(')');
         },
         .AndType => try writer.writeAll("UnimplementedAndType"),
@@ -70,7 +70,7 @@ fn writeType(writer: anytype, typ: MetaModel.Type) anyerror!void {
             try writer.writeAll("union(enum) {");
             for (ort.items) |sub_type, i| {
                 try writer.print("unnamed_{d}: ", .{i});
-                try writeType(writer, sub_type);
+                try writeType(meta_model, writer, sub_type);
                 try writer.writeAll(",\n");
             }
             try writer.writeByte('}');
@@ -79,12 +79,52 @@ fn writeType(writer: anytype, typ: MetaModel.Type) anyerror!void {
     }
 }
 
-fn writeProperties(writer: anytype, structure: MetaModel.Structure) !void {
+fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.Structure) anyerror!void {
     for (structure.properties) |property| {
         if (property.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
-        try writeType(writer, property.type);
+        try writeType(meta_model, writer, property.type);
         try writer.writeAll(",\n");
+    }
+
+    if (structure.extends.asOptional()) |extends| {
+        for (extends) |ext| {
+            switch (ext) {
+                .ReferenceType => |ref| {
+                    try writer.print("// Extends {s}\n", .{ref.name});
+
+                    for (meta_model.structures) |s| {
+                        if (std.mem.eql(u8, s.name, ref.name)) {
+                            try writeProperties(meta_model, writer, s);
+                            break;
+                        }
+                    }
+
+                    try writer.writeAll("\n\n");
+                },
+                else => @panic("Expected reference for extends!"),
+            }
+        }
+    }
+
+    if (structure.mixins.asOptional()) |mixes| {
+        for (mixes) |ext| {
+            switch (ext) {
+                .ReferenceType => |ref| {
+                    try writer.print("// Uses mixin {s}\n", .{ref.name});
+
+                    for (meta_model.structures) |s| {
+                        if (std.mem.eql(u8, s.name, ref.name)) {
+                            try writeProperties(meta_model, writer, s);
+                            break;
+                        }
+                    }
+
+                    try writer.writeAll("\n\n");
+                },
+                else => @panic("Expected reference for mixin!"),
+            }
+        }
     }
 }
 
@@ -110,7 +150,7 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         if (structure.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         try writer.print("pub const {s} = struct {{\n", .{std.zig.fmtId(structure.name)});
 
-        try writeProperties(writer, structure);
+        try writeProperties(meta_model, writer, structure);
 
         try writer.writeAll("};\n\n");
     }
