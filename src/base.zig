@@ -13,6 +13,13 @@ pub const LSPAny = std.json.Value;
 pub const LSPArray = []LSPAny;
 pub const LSPObject = std.json.ObjectMap;
 
+pub fn Map(comptime Key: type, comptime Value: type) type {
+    if (Key == []const u8)
+        return std.StringHashMap(Value)
+    else
+        return std.AutoHashMap(Key, Value);
+}
+
 pub const RequestId = union(enum) {
     integer: i64,
     string: []const u8,
@@ -61,20 +68,20 @@ pub const Request = struct {
     jsonrpc: []const u8,
     id: RequestId,
     method: []const u8,
-    params: NotificationParams,
+    params: RequestParams,
 
     fn RequestParseError() type {
-        @setEvalBranchQuota(10000);
+        @setEvalBranchQuota(100_000);
 
         var err = tres.ParseInternalError(RequestId) || error{UnknownMethod};
-        inline for (std.meta.fields(NotificationParams)) |field| {
+        inline for (std.meta.fields(RequestParams)) |field| {
             err = err || tres.ParseInternalError(field.field_type);
         }
         return err;
     }
 
     pub fn tresParse(value: std.json.Value, maybe_allocator: ?std.mem.Allocator) RequestParseError()!Self {
-        @setEvalBranchQuota(10000);
+        @setEvalBranchQuota(100_000);
 
         var object = value.Object;
         var request: Self = undefined;

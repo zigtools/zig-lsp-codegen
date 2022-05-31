@@ -89,7 +89,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             try writeType(meta_model, writer, arr.element.*);
         },
         .MapType => |map| {
-            try writer.writeAll("std.AutoHashMap(");
+            try writer.writeAll("Map(");
             switch (map.key) {
                 .base => |base| try switch (base.name) {
                     .Uri => writer.writeAll("Uri"),
@@ -112,7 +112,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
 
                         for (meta_model.structures) |s| {
                             if (std.mem.eql(u8, s.name, ref.name)) {
-                                try writeProperties(meta_model, writer, s);
+                                try writeProperties(meta_model, writer, s, null);
                                 break;
                             }
                         }
@@ -189,8 +189,18 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
     try writer.writeAll(",\n");
 }
 
-fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.Structure) anyerror!void {
-    for (structure.properties) |property| try writeProperty(meta_model, writer, property);
+fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.Structure, maybe_extender: ?MetaModel.Structure) anyerror!void {
+    z: for (structure.properties) |property| {
+        if (maybe_extender) |ext| {
+            for (ext.properties) |ext_property| {
+                if (std.mem.eql(u8, property.name, ext_property.name)) {
+                    std.log.info("Skipping implemented field emission: {s}", .{property.name});
+                    continue :z;
+                }
+            }
+        }
+        try writeProperty(meta_model, writer, property);
+    }
 
     if (structure.extends.asOptional()) |extends| {
         for (extends) |ext| {
@@ -200,7 +210,7 @@ fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.
 
                     for (meta_model.structures) |s| {
                         if (std.mem.eql(u8, s.name, ref.name)) {
-                            try writeProperties(meta_model, writer, s);
+                            try writeProperties(meta_model, writer, s, structure);
                             break;
                         }
                     }
@@ -220,7 +230,7 @@ fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.
 
                     for (meta_model.structures) |s| {
                         if (std.mem.eql(u8, s.name, ref.name)) {
-                            try writeProperties(meta_model, writer, s);
+                            try writeProperties(meta_model, writer, s, structure);
                             break;
                         }
                     }
@@ -262,6 +272,10 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
             }
         }
 
+        if (enumeration.values.len == 1) {
+            try writer.writeAll("placeholder__, // fixes alignment issue\n");
+        }
+
         try writer.writeAll("};\n\n");
     }
 
@@ -272,7 +286,7 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         if (structure.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         try writer.print("pub const {s} = struct {{\n", .{std.zig.fmtId(structure.name)});
 
-        try writeProperties(meta_model, writer, structure);
+        try writeProperties(meta_model, writer, structure, null);
 
         try writer.writeAll("};\n\n");
     }
