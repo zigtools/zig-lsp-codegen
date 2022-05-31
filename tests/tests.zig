@@ -108,8 +108,15 @@ test {
                         break :a;
                     };
                 },
-                .@"send-response" => {
-                    // std.log.err("\nSEND RESPONSE\n", .{});
+                .@"send-request",
+                .@"receive-request",
+                => a: {
+                    _ = tres.parse(lsp.Request, entry.message, allocator) catch |err| {
+                        // Ignore unknown methods such as custom VSCode LSP methods
+                        if (err == error.UnknownMethod) break :a;
+                        std.log.err("Cannot handle Request or Notification of method \"{s}\"", .{entry.message.Object.get("method").?.String});
+                        break :a;
+                    };
                 },
                 else => {},
             }
