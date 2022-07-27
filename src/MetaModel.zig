@@ -73,6 +73,7 @@ pub const EnumerationType = struct {
     name: enum {
         string,
         integer,
+        uinteger,
     },
 };
 
