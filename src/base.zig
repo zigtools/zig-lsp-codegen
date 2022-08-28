@@ -25,10 +25,13 @@ pub const RequestId = union(enum) {
     string: []const u8,
 };
 
-pub const Method = struct {
-    name: []const u8,
-    RequestType: type,
-    /// If this is null, the method is a Notification
-    ResponseType: ?type,
-    RegistrationType: type,
+pub const ResponseError = struct {
+    /// A number indicating the error type that occurred.
+    code: i64,
+    /// A string providing a short description of the error.
+    message: []const u8,
+
+    /// A primitive or structured value that contains additional
+    /// information about the error. Can be omitted.
+    data: std.json.Value = .Null,
 };
