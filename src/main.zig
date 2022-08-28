@@ -2,6 +2,8 @@ const std = @import("std");
 const tres = @import("tres");
 const MetaModel = @import("MetaModel.zig");
 
+pub var a = 123;
+
 pub fn main() anyerror!void {
     @setEvalBranchQuota(100_000);
 
@@ -33,6 +35,11 @@ pub fn main() anyerror!void {
 fn writeDocs(writer: anytype, docs: []const u8) !void {
     var iterator = std.mem.split(u8, docs, "\n");
     while (iterator.next()) |line| try writer.print("/// {s}\n", .{line});
+}
+
+fn writeDocsAsNormal(writer: anytype, docs: []const u8) !void {
+    var iterator = std.mem.split(u8, docs, "\n");
+    while (iterator.next()) |line| try writer.print("// {s}\n", .{line});
 }
 
 fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i: usize) anyerror!void {
@@ -69,6 +76,12 @@ fn isOrActuallyEnum(ort: MetaModel.OrType) bool {
         if (t != .StringLiteralType) return false;
     }
     return true;
+}
+
+fn isTypeNull(typ: MetaModel.Type) bool {
+    if (typ != .OrType) return false;
+    var ort = typ.OrType;
+    return (ort.items.len == 2 and ort.items[1] == .BaseType and ort.items[1].BaseType.name == .@"null") or (ort.items[ort.items.len - 1] == .BaseType and ort.items[ort.items.len - 1].BaseType.name == .@"null");
 }
 
 fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
@@ -138,8 +151,12 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
                 }
                 try writer.writeByte('}');
             } else {
+                var has_null = ort.items[ort.items.len - 1] == .BaseType and ort.items[ort.items.len - 1].BaseType.name == .@"null";
+
+                if (has_null) try writer.writeByte('?');
+
                 try writer.writeAll("union(enum) {");
-                for (ort.items) |sub_type, i| {
+                for (ort.items[0..if (has_null) ort.items.len - 1 else ort.items.len]) |sub_type, i| {
                     try guessTypeName(meta_model, writer, sub_type, i);
                     try writer.writeAll(": ");
                     try writeType(meta_model, writer, sub_type);
@@ -168,13 +185,16 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             try writer.print("i64 = {d}", .{lit.value});
         },
         .BooleanLiteralType => |lit| {
-            try writer.print("bool = {s}", .{lit.value});
+            try writer.print("bool = {}", .{lit.value});
         },
     }
 }
 
 fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) anyerror!void {
+    var isUndefinedable = property.optional.asOptional() orelse false;
+
     if (property.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    if (isUndefinedable) try writer.writeAll("/// field can be undefined, but this possible state is non-critical\n");
     switch (property.type) {
         .StringLiteralType,
         .IntegerLiteralType,
@@ -183,9 +203,11 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
         else => {},
     }
     try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
-    if (property.optional.asOptional()) |op| if (op) try writer.writeAll("Undefinedable(");
+    if (!isTypeNull(property.type) and isUndefinedable)
+        try writer.writeAll("?");
     try writeType(meta_model, writer, property.type);
-    if (property.optional.asOptional()) |op| if (op) try writer.writeAll(")");
+    if (isTypeNull(property.type) or isUndefinedable)
+        try writer.writeAll("= null");
     try writer.writeAll(",\n");
 }
 
@@ -262,12 +284,18 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         switch (enumeration.type.name) {
             .string => try writer.print("pub const {s} = enum {{\n", .{std.zig.fmtId(enumeration.name)}),
             .integer => try writer.print("pub const {s} = enum(i64) {{\n", .{std.zig.fmtId(enumeration.name)}),
+            .uinteger => try writer.print("pub const {s} = enum(u64) {{\n", .{std.zig.fmtId(enumeration.name)}),
         }
 
         for (enumeration.values) |entry| {
             if (entry.documentation.asOptional()) |docs| try writeDocs(writer, docs);
             switch (entry.value) {
-                .string => |value| try writer.print("{s},\n", .{std.zig.fmtId(value)}),
+                .string => |value| {
+                    if (value.len == 0)
+                        try writer.print("emptyGottaFix,\n", .{})
+                    else
+                        try writer.print("{s},\n", .{std.zig.fmtId(value)});
+                },
                 .number => |value| try writer.print("{s} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
             }
         }
@@ -291,75 +319,133 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         try writer.writeAll("};\n\n");
     }
 
+    // try writer.writeAll("const methods = [_]Method{\n// Notifications\n");
+    // for (meta_model.notifications) |notification| {
+    //     if (notification.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
+    //     try writer.print(".{{.method = \"{s}\", .RequestType =", .{notification.method});
+    //     if (notification.params.asOptional()) |params|
+    //         // NOTE: Multiparams not used here, so we dont have to implement them :)
+    //         try writeType(meta_model, writer, params.Type)
+    //     else
+    //         try writer.writeAll("void");
+    //     try writer.writeAll(", .ResponseType = null, .RegistrationType = ");
+    //     if (notification.registrationOptions.asOptional()) |options|
+    //         try writeType(meta_model, writer, options)
+    //     else
+    //         try writer.writeAll("void");
+    //     try writer.writeAll("},\n");
+    // }
+    // try writer.writeAll("\n};");
+
     try writer.writeAll(
+        \\
+        \\pub const HandlerExample = struct
+        \\{fn notImplemented(context: void, id: RequestId, method: []const u8) !void {_ = context; _ = id; _ = method;}
+        \\fn responseError(context: void, id: RequestId, err: ResponseError) !void {_ = context; _ = id; _ = err;}
+        \\fn responseValid(context: void, id: RequestId, result: std.json.Value) !void {_ = context; _ = id; _ = result;}
         \\// Notifications
         \\
-        \\pub const NotificationParams = union(enum) { 
-        \\
-        \\pub const registration_options = .{
-        \\
     );
-    for (meta_model.notifications) |notification| {
-        try writer.print(".{{\"{s}\", ", .{notification.method});
-        if (notification.registrationOptions.asOptional()) |options|
-            try writeType(meta_model, writer, options)
-        else
-            try writer.writeAll("void");
-        try writer.writeAll("},\n");
-    }
-    try writer.writeAll("};\n\n");
     for (meta_model.notifications) |notification| {
         if (notification.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("{s}: ", .{std.zig.fmtId(notification.method)});
-        if (notification.params.asOptional()) |params|
+        try writer.print("fn {s} (context: void, id: RequestId", .{std.zig.fmtId(notification.method)});
+        if (notification.params.asOptional()) |params| {
+            try writer.writeAll(", params: ");
             // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, params.Type)
-        else
-            try writer.writeAll("void");
-        try writer.writeAll(",\n");
+            try writeType(meta_model, writer, params.Type);
+        }
+        try writer.writeAll(") !void {_ = context; _ = id;");
+        if (notification.params.asOptional()) |_|
+            try writer.writeAll("_ = params;");
+        try writer.writeAll("}\n");
     }
-    try writer.writeAll("};\n\n");
-
-    try writer.writeAll(
-        \\// Requests
-        \\
-        \\pub const RequestParams = union(enum) { 
-        \\
-        \\pub const registration_options = .{
-        \\
-    );
-    for (meta_model.requests) |request| {
-        try writer.print(".{{\"{s}\", ", .{request.method});
-        if (request.registrationOptions.asOptional()) |options|
-            try writeType(meta_model, writer, options)
-        else
-            try writer.writeAll("void");
-        try writer.writeAll("},\n");
-    }
-    try writer.writeAll("};\n\n");
+    try writer.writeAll("\n// Requests\n");
     for (meta_model.requests) |request| {
         if (request.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("{s}: ", .{std.zig.fmtId(request.method)});
-        if (request.params.asOptional()) |params|
+        try writer.print("fn {s} (context: void, id: RequestId", .{std.zig.fmtId(request.method)});
+        if (request.params.asOptional()) |params| {
+            try writer.writeAll(", params: ");
             // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, params.Type)
-        else
-            try writer.writeAll("void");
-        try writer.writeAll(",\n");
-    }
-    try writer.writeAll("};\n\n");
-
-    try writer.writeAll(
-        \\// Results
-        \\
-        \\pub const Result = union(enum) { 
-        \\
-    );
-    for (meta_model.requests) |request| {
-        if (request.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("{s}: ", .{std.zig.fmtId(request.method)});
+            try writeType(meta_model, writer, params.Type);
+        }
+        try writer.writeAll(") !");
         try writeType(meta_model, writer, request.result);
-        try writer.writeAll(",\n");
+        try writer.writeAll("{_ = context; _ = id;");
+        if (request.params.asOptional()) |_|
+            try writer.writeAll("_ = params;");
+        try writer.writeAll("}\n");
     }
-    try writer.writeAll("};\n\n");
+    try writer.writeAll("\nusingnamespace HandlerMixin(@This());};");
+
+    // try writer.writeAll(
+    //     \\// Notifications
+    //     \\
+    //     \\pub const NotificationParams = union(enum) {
+    //     \\
+    //     \\pub const registration_options = .{
+    //     \\
+    // );
+    // for (meta_model.notifications) |notification| {
+    //     try writer.print(".{{\"{s}\", ", .{notification.method});
+    //     if (notification.registrationOptions.asOptional()) |options|
+    //         try writeType(meta_model, writer, options)
+    //     else
+    //         try writer.writeAll("void");
+    //     try writer.writeAll("},\n");
+    // }
+    // try writer.writeAll("};\n\n");
+    // for (meta_model.notifications) |notification| {
+    //     if (notification.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    //     try writer.print("{s}: ", .{std.zig.fmtId(notification.method)});
+    //     if (notification.params.asOptional()) |params|
+    //         // NOTE: Multiparams not used here, so we dont have to implement them :)
+    //         try writeType(meta_model, writer, params.Type)
+    //     else
+    //         try writer.writeAll("void");
+    //     try writer.writeAll(",\n");
+    // }
+    // try writer.writeAll("};\n\n");
+
+    // try writer.writeAll(
+    //     \\// Requests
+    //     \\
+    //     \\pub const RequestParams = union(enum) {
+    //     \\
+    //     \\pub const registration_options = .{
+    //     \\
+    // );
+    // for (meta_model.requests) |request| {
+    //     try writer.print(".{{\"{s}\", ", .{request.method});
+    //     if (request.registrationOptions.asOptional()) |options|
+    //         try writeType(meta_model, writer, options)
+    //     else
+    //         try writer.writeAll("void");
+    //     try writer.writeAll("},\n");
+    // }
+    // try writer.writeAll("};\n\n");
+    // for (meta_model.requests) |request| {
+    //     if (request.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    //     try writer.print("{s}: ", .{std.zig.fmtId(request.method)});
+    //     if (request.params.asOptional()) |params|
+    //         // NOTE: Multiparams not used here, so we dont have to implement them :)
+    //         try writeType(meta_model, writer, params.Type)
+    //     else
+    //         try writer.writeAll("void");
+    //     try writer.writeAll(",\n");
+    // }
+    // try writer.writeAll("};\n\n");
+
+    // try writer.writeAll(
+    //     \\// Results
+    //     \\
+    //     \\pub const Result = union(enum) {
+    //     \\
+    // );
+    // for (meta_model.requests) |request| {
+    //     if (request.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    //     try writer.print("{s}: ", .{std.zig.fmtId(request.method)});
+    //     try writeType(meta_model, writer, request.result);
+    //     try writer.writeAll(",\n");
+    // }
+    // try writer.writeAll("};\n\n");
 }

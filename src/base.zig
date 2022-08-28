@@ -25,92 +25,13 @@ pub const RequestId = union(enum) {
     string: []const u8,
 };
 
-pub const Notification = struct {
-    const Self = @This();
+pub const ResponseError = struct {
+    /// A number indicating the error type that occurred.
+    code: i64,
+    /// A string providing a short description of the error.
+    message: []const u8,
 
-    jsonrpc: []const u8,
-    method: []const u8,
-    params: NotificationParams,
-
-    fn NotificationParseError() type {
-        @setEvalBranchQuota(10000);
-
-        var err = tres.ParseInternalError(RequestId) || error{UnknownMethod};
-        inline for (std.meta.fields(NotificationParams)) |field| {
-            err = err || tres.ParseInternalError(field.field_type);
-        }
-        return err;
-    }
-
-    pub fn tresParse(value: std.json.Value, maybe_allocator: ?std.mem.Allocator) NotificationParseError()!Self {
-        @setEvalBranchQuota(10000);
-
-        var object = value.Object;
-        var notification: Self = undefined;
-
-        notification.jsonrpc = object.get("jsonrpc").?.String;
-        notification.method = object.get("method").?.String;
-
-        inline for (std.meta.fields(NotificationParams)) |field| {
-            if (std.mem.eql(u8, notification.method, field.name)) {
-                notification.params = @unionInit(NotificationParams, field.name, if (field.field_type == void) {} else try tres.parse(field.field_type, object.get("params").?, maybe_allocator));
-                return notification;
-            }
-        }
-
-        return error.UnknownMethod;
-    }
+    /// A primitive or structured value that contains additional
+    /// information about the error. Can be omitted.
+    data: std.json.Value = .Null,
 };
-
-pub const Request = struct {
-    const Self = @This();
-
-    jsonrpc: []const u8,
-    id: RequestId,
-    method: []const u8,
-    params: RequestParams,
-
-    fn RequestParseError() type {
-        @setEvalBranchQuota(100_000);
-
-        var err = tres.ParseInternalError(RequestId) || error{UnknownMethod};
-        inline for (std.meta.fields(RequestParams)) |field| {
-            err = err || tres.ParseInternalError(field.field_type);
-        }
-        return err;
-    }
-
-    pub fn tresParse(value: std.json.Value, maybe_allocator: ?std.mem.Allocator) RequestParseError()!Self {
-        @setEvalBranchQuota(100_000);
-
-        var object = value.Object;
-        var request: Self = undefined;
-
-        request.jsonrpc = object.get("jsonrpc").?.String;
-        request.id = switch (object.get("id").?) {
-            .Integer => |i| .{ .integer = i },
-            .String => |s| .{ .string = s },
-            else => unreachable,
-        };
-        request.method = object.get("method").?.String;
-
-        inline for (std.meta.fields(RequestParams)) |field| {
-            if (std.mem.eql(u8, request.method, field.name)) {
-                request.params = @unionInit(RequestParams, field.name, if (field.field_type == void) {} else try tres.parse(field.field_type, object.get("params").?, maybe_allocator));
-                return request;
-            }
-        }
-
-        return error.UnknownMethod;
-    }
-};
-
-pub const MessageKind = enum {
-    notification,
-    request,
-    response,
-};
-
-pub fn getMessageKind(message: std.json.ObjectMap) MessageKind {
-    return if (message.contains("result")) .response else if (message.contains("id")) .request else .notification;
-}
