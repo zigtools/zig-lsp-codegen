@@ -45,7 +45,7 @@ fn writeDocsAsNormal(writer: anytype, docs: []const u8) !void {
 fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i: usize) anyerror!void {
     switch (typ) {
         .BaseType => |base| try switch (base.name) {
-            .Uri => writer.writeAll("uri"),
+            .URI => writer.writeAll("uri"),
             .DocumentUri => writer.writeAll("document_uri"),
             .integer => writer.writeAll("integer"),
             .uinteger, .decimal => writer.writeAll("uinteger"),
@@ -87,7 +87,7 @@ fn isTypeNull(typ: MetaModel.Type) bool {
 fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
     switch (typ) {
         .BaseType => |base| try switch (base.name) {
-            .Uri => writer.writeAll("URI"),
+            .URI => writer.writeAll("URI"),
             .DocumentUri => writer.writeAll("DocumentUri"),
             .integer => writer.writeAll("i64"),
             .uinteger, .decimal => writer.writeAll("u64"),

@@ -29,7 +29,7 @@ pub const BaseType = struct {
 };
 
 pub const BaseTypes = enum {
-    Uri,
+    URI,
     DocumentUri,
     integer,
     uinteger,
@@ -112,6 +112,7 @@ pub const Notification = struct {
         array_of_Type: []Type,
     }),
     proposed: Undefinedable(bool),
+    registrationMethod: Undefinedable([]const u8),
     registrationOptions: Undefinedable(Type),
     since: Undefinedable([]const u8),
 };
@@ -147,6 +148,7 @@ pub const Request = struct {
     }),
     partialResult: Undefinedable(Type),
     proposed: Undefinedable(bool),
+    registrationMethod: Undefinedable([]const u8),
     registrationOptions: Undefinedable(Type),
     result: Type,
     since: Undefinedable([]const u8),
