@@ -4,6 +4,7 @@ const std = @import("std");
 const tres = @import("tres");
 const Undefinedable = tres.Undefinedable;
 
+const URI = []const u8;
 /// The URI of a document
 pub const DocumentUri = []const u8;
 /// A JavaScript regular expression; never used
@@ -35,3 +36,38 @@ pub const ResponseError = struct {
     /// information about the error. Can be omitted.
     data: std.json.Value = .Null,
 };
+
+pub const MessageDirection = enum {
+    client_to_server,
+    server_to_client,
+    bidirectional,
+};
+
+pub const RegistrationMetadata = struct {
+    method: ?[]const u8,
+    Options: ?type,
+};
+
+pub const NotificationMetadata = struct {
+    method: []const u8,
+    documentation: ?[]const u8,
+    direction: MessageDirection,
+    Params: ?type,
+    registration: RegistrationMetadata,
+};
+
+pub const RequestMetadata = struct {
+    method: []const u8,
+    documentation: ?[]const u8,
+    direction: MessageDirection,
+    Params: ?type,
+    Result: type,
+    PartialResult: ?type,
+    ErrorData: ?type,
+    registration: RegistrationMetadata,
+};
+
+test {
+    _ = @field(@This(), "notification_metadata");
+    _ = @field(@This(), "request_metadata");
+}

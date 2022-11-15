@@ -319,133 +319,81 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         try writer.writeAll("};\n\n");
     }
 
-    // try writer.writeAll("const methods = [_]Method{\n// Notifications\n");
-    // for (meta_model.notifications) |notification| {
-    //     if (notification.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
-    //     try writer.print(".{{.method = \"{s}\", .RequestType =", .{notification.method});
-    //     if (notification.params.asOptional()) |params|
-    //         // NOTE: Multiparams not used here, so we dont have to implement them :)
-    //         try writeType(meta_model, writer, params.Type)
-    //     else
-    //         try writer.writeAll("void");
-    //     try writer.writeAll(", .ResponseType = null, .RegistrationType = ");
-    //     if (notification.registrationOptions.asOptional()) |options|
-    //         try writeType(meta_model, writer, options)
-    //     else
-    //         try writer.writeAll("void");
-    //     try writer.writeAll("},\n");
-    // }
-    // try writer.writeAll("\n};");
-
-    try writer.writeAll(
-        \\
-        \\pub const HandlerExample = struct
-        \\{fn notImplemented(context: void, id: RequestId, method: []const u8) !void {_ = context; _ = id; _ = method;}
-        \\fn responseError(context: void, id: RequestId, err: ResponseError) !void {_ = context; _ = id; _ = err;}
-        \\fn responseValid(context: void, id: RequestId, result: std.json.Value) !void {_ = context; _ = id; _ = result;}
-        \\// Notifications
-        \\
-    );
+    try writer.writeAll("pub const notification_metadata = [_]NotificationMetadata{\n");
     for (meta_model.notifications) |notification| {
-        if (notification.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("fn {s} (context: void, id: RequestId", .{std.zig.fmtId(notification.method)});
-        if (notification.params.asOptional()) |params| {
-            try writer.writeAll(", params: ");
+        if (notification.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
+        try writer.print(".{{.method = \"{s}\", .documentation =", .{notification.method});
+        if (notification.documentation.asOptional()) |value|
+            try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
+        else
+            try writer.writeAll("null");
+        try writer.print(", .direction = .{s}, .Params =", .{notification.messageDirection});
+
+        if (notification.params.asOptional()) |params|
             // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, params.Type);
-        }
-        try writer.writeAll(") !void {_ = context; _ = id;");
-        if (notification.params.asOptional()) |_|
-            try writer.writeAll("_ = params;");
-        try writer.writeAll("}\n");
+            try writeType(meta_model, writer, params.Type)
+        else
+            try writer.writeAll("null");
+        try writer.writeAll(", .registration = .{.method = ");
+        if (notification.registrationMethod.asOptional()) |method|
+            try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
+        else
+            try writer.writeAll("null");
+        try writer.writeAll(", .Options =");
+        if (notification.registrationOptions.asOptional()) |options|
+            try writeType(meta_model, writer, options)
+        else
+            try writer.writeAll("null");
+        try writer.writeAll("},},\n");
     }
-    try writer.writeAll("\n// Requests\n");
+    try writer.writeAll("\n};");
+
+    // REQUESTS
+
+    try writer.writeAll("pub const request_metadata = [_]RequestMetadata{\n");
     for (meta_model.requests) |request| {
-        if (request.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("fn {s} (context: void, id: RequestId", .{std.zig.fmtId(request.method)});
-        if (request.params.asOptional()) |params| {
-            try writer.writeAll(", params: ");
+        if (request.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
+        try writer.print(".{{.method = \"{s}\", .documentation =", .{request.method});
+        if (request.documentation.asOptional()) |value|
+            try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
+        else
+            try writer.writeAll("null");
+        try writer.print(", .direction = .{s}, .Params =", .{request.messageDirection});
+
+        if (request.params.asOptional()) |params|
             // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, params.Type);
-        }
-        try writer.writeAll(") !");
+            try writeType(meta_model, writer, params.Type)
+        else
+            try writer.writeAll("null");
+
+        try writer.writeAll(", .Result =");
         try writeType(meta_model, writer, request.result);
-        try writer.writeAll("{_ = context; _ = id;");
-        if (request.params.asOptional()) |_|
-            try writer.writeAll("_ = params;");
-        try writer.writeAll("}\n");
+
+        try writer.writeAll(", .PartialResult =");
+        if (request.partialResult.asOptional()) |pr|
+            // NOTE: Multiparams not used here, so we dont have to implement them :)
+            try writeType(meta_model, writer, pr)
+        else
+            try writer.writeAll("null");
+
+        try writer.writeAll(", .ErrorData =");
+        if (request.errorData.asOptional()) |erd|
+            // NOTE: Multiparams not used here, so we dont have to implement them :)
+            try writeType(meta_model, writer, erd)
+        else
+            try writer.writeAll("null");
+
+        try writer.writeAll(", .registration = .{.method = ");
+        if (request.registrationMethod.asOptional()) |method|
+            try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
+        else
+            try writer.writeAll("null");
+        try writer.writeAll(", .Options =");
+        if (request.registrationOptions.asOptional()) |options|
+            try writeType(meta_model, writer, options)
+        else
+            try writer.writeAll("null");
+        try writer.writeAll("},},\n");
     }
-    try writer.writeAll("\nusingnamespace HandlerMixin(@This());};");
-
-    // try writer.writeAll(
-    //     \\// Notifications
-    //     \\
-    //     \\pub const NotificationParams = union(enum) {
-    //     \\
-    //     \\pub const registration_options = .{
-    //     \\
-    // );
-    // for (meta_model.notifications) |notification| {
-    //     try writer.print(".{{\"{s}\", ", .{notification.method});
-    //     if (notification.registrationOptions.asOptional()) |options|
-    //         try writeType(meta_model, writer, options)
-    //     else
-    //         try writer.writeAll("void");
-    //     try writer.writeAll("},\n");
-    // }
-    // try writer.writeAll("};\n\n");
-    // for (meta_model.notifications) |notification| {
-    //     if (notification.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-    //     try writer.print("{s}: ", .{std.zig.fmtId(notification.method)});
-    //     if (notification.params.asOptional()) |params|
-    //         // NOTE: Multiparams not used here, so we dont have to implement them :)
-    //         try writeType(meta_model, writer, params.Type)
-    //     else
-    //         try writer.writeAll("void");
-    //     try writer.writeAll(",\n");
-    // }
-    // try writer.writeAll("};\n\n");
-
-    // try writer.writeAll(
-    //     \\// Requests
-    //     \\
-    //     \\pub const RequestParams = union(enum) {
-    //     \\
-    //     \\pub const registration_options = .{
-    //     \\
-    // );
-    // for (meta_model.requests) |request| {
-    //     try writer.print(".{{\"{s}\", ", .{request.method});
-    //     if (request.registrationOptions.asOptional()) |options|
-    //         try writeType(meta_model, writer, options)
-    //     else
-    //         try writer.writeAll("void");
-    //     try writer.writeAll("},\n");
-    // }
-    // try writer.writeAll("};\n\n");
-    // for (meta_model.requests) |request| {
-    //     if (request.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-    //     try writer.print("{s}: ", .{std.zig.fmtId(request.method)});
-    //     if (request.params.asOptional()) |params|
-    //         // NOTE: Multiparams not used here, so we dont have to implement them :)
-    //         try writeType(meta_model, writer, params.Type)
-    //     else
-    //         try writer.writeAll("void");
-    //     try writer.writeAll(",\n");
-    // }
-    // try writer.writeAll("};\n\n");
-
-    // try writer.writeAll(
-    //     \\// Results
-    //     \\
-    //     \\pub const Result = union(enum) {
-    //     \\
-    // );
-    // for (meta_model.requests) |request| {
-    //     if (request.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-    //     try writer.print("{s}: ", .{std.zig.fmtId(request.method)});
-    //     try writeType(meta_model, writer, request.result);
-    //     try writer.writeAll(",\n");
-    // }
-    // try writer.writeAll("};\n\n");
+    try writer.writeAll("\n};");
 }
