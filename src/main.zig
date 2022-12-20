@@ -52,7 +52,7 @@ fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i:
             .RegExp => writer.writeAll("regexp"),
             .string => writer.writeAll("string"),
             .boolean => writer.writeAll("bool"),
-            .@"null" => writer.writeAll("@\"null\""),
+            .null => writer.writeAll("@\"null\""),
         },
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
         .ArrayType => |arr| {
@@ -81,7 +81,7 @@ fn isOrActuallyEnum(ort: MetaModel.OrType) bool {
 fn isTypeNull(typ: MetaModel.Type) bool {
     if (typ != .OrType) return false;
     var ort = typ.OrType;
-    return (ort.items.len == 2 and ort.items[1] == .BaseType and ort.items[1].BaseType.name == .@"null") or (ort.items[ort.items.len - 1] == .BaseType and ort.items[ort.items.len - 1].BaseType.name == .@"null");
+    return (ort.items.len == 2 and ort.items[1] == .BaseType and ort.items[1].BaseType.name == .null) or (ort.items[ort.items.len - 1] == .BaseType and ort.items[ort.items.len - 1].BaseType.name == .null);
 }
 
 fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
@@ -94,7 +94,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             .RegExp => writer.writeAll("RegExp"),
             .string => writer.writeAll("[]const u8"),
             .boolean => writer.writeAll("bool"),
-            .@"null" => writer.writeAll("?void"),
+            .null => writer.writeAll("?void"),
         },
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
         .ArrayType => |arr| {
@@ -141,17 +141,18 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             // NOTE: Hack to get optionals working
             // There are no triple optional ors (I believe),
             // so this should work every time
-            if (ort.items.len == 2 and ort.items[1] == .BaseType and ort.items[1].BaseType.name == .@"null") {
+            if (ort.items.len == 2 and ort.items[1] == .BaseType and ort.items[1].BaseType.name == .null) {
                 try writer.writeByte('?');
                 try writeType(meta_model, writer, ort.items[0]);
             } else if (isOrActuallyEnum(ort)) {
                 try writer.writeAll("enum {");
+                try writer.writeAll("const tres_string_enum = {};\n");
                 for (ort.items) |sub_type| {
                     try writer.print("{s},\n", .{sub_type.StringLiteralType.value});
                 }
                 try writer.writeByte('}');
             } else {
-                var has_null = ort.items[ort.items.len - 1] == .BaseType and ort.items[ort.items.len - 1].BaseType.name == .@"null";
+                var has_null = ort.items[ort.items.len - 1] == .BaseType and ort.items[ort.items.len - 1].BaseType.name == .null;
 
                 if (has_null) try writer.writeByte('?');
 
@@ -282,7 +283,7 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
     for (meta_model.enumerations) |enumeration| {
         if (enumeration.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         switch (enumeration.type.name) {
-            .string => try writer.print("pub const {s} = enum {{\n", .{std.zig.fmtId(enumeration.name)}),
+            .string => try writer.print("pub const {s} = enum {{const tres_string_enum = {{}};\n\n", .{std.zig.fmtId(enumeration.name)}),
             .integer => try writer.print("pub const {s} = enum(i64) {{\n", .{std.zig.fmtId(enumeration.name)}),
             .uinteger => try writer.print("pub const {s} = enum(u64) {{\n", .{std.zig.fmtId(enumeration.name)}),
         }

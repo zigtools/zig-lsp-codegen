@@ -12,7 +12,6 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("lspmm-zig", "src/main.zig");
-    exe.use_stage1 = true;
     exe.addPackagePath("tres", "libs/tres/tres.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
@@ -31,7 +30,6 @@ pub fn build(b: *std.build.Builder) void {
     test_step.dependOn(b.getInstallStep());
 
     const tests = b.addTest("tests/tests.zig");
-    tests.use_stage1 = true;
     tests.addPackagePath("tres", "libs/tres/tres.zig");
     tests.addPackage(.{
         .name = "lsp",
