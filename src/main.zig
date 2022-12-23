@@ -283,7 +283,7 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
     for (meta_model.enumerations) |enumeration| {
         if (enumeration.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         switch (enumeration.type.name) {
-            .string => try writer.print("pub const {s} = enum {{const tres_string_enum = {{}};\n\n", .{std.zig.fmtId(enumeration.name)}),
+            .string => try writer.print("pub const {s} = enum {{pub const tres_string_enum = {{}};\n\n", .{std.zig.fmtId(enumeration.name)}),
             .integer => try writer.print("pub const {s} = enum(i64) {{\n", .{std.zig.fmtId(enumeration.name)}),
             .uinteger => try writer.print("pub const {s} = enum(u64) {{\n", .{std.zig.fmtId(enumeration.name)}),
         }
