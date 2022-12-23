@@ -146,7 +146,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
                 try writeType(meta_model, writer, ort.items[0]);
             } else if (isOrActuallyEnum(ort)) {
                 try writer.writeAll("enum {");
-                try writer.writeAll("const tres_string_enum = {};\n");
+                try writer.writeAll("pub const tres_string_enum = {};\n");
                 for (ort.items) |sub_type| {
                     try writer.print("{s},\n", .{sub_type.StringLiteralType.value});
                 }
