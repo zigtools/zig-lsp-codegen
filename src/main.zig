@@ -98,7 +98,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
         },
         .ReferenceType => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
         .ArrayType => |arr| {
-            try writer.writeAll("[]");
+            try writer.writeAll("[]const ");
             try writeType(meta_model, writer, arr.element.*);
         },
         .MapType => |map| {
