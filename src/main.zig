@@ -167,12 +167,12 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             }
         },
         .TupleType => |tup| {
-            try writer.writeAll("std.meta.Tuple(&[_]type {");
+            try writer.writeAll("struct{");
             for (tup.items) |t, i| {
                 try writeType(meta_model, writer, t);
                 if (tup.items.len - 1 != i) try writer.writeAll(", ");
             }
-            try writer.writeAll("})");
+            try writer.writeAll("}");
         },
         .StructureLiteralType => |lit| {
             try writer.writeAll("struct {\n");
