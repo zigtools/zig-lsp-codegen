@@ -2,47 +2,61 @@ const std = @import("std");
 const tres = @import("tres");
 const MetaModel = @import("MetaModel.zig");
 
-pub var a = 123;
-
-pub fn main() anyerror!void {
+pub fn main() !void {
     @setEvalBranchQuota(100_000);
 
-    const allocator = std.heap.page_allocator;
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = general_purpose_allocator.deinit();
+
+    var gpa = general_purpose_allocator.allocator();
 
     var input_model_file = try std.fs.cwd().openFile("metaModel.json", .{});
-    var data = try allocator.alloc(u8, (try input_model_file.stat()).size);
-    defer input_model_file.close();
-    defer allocator.free(data);
 
-    _ = try input_model_file.reader().readAll(data);
+    var model_file_source = try input_model_file.readToEndAlloc(gpa, std.math.maxInt(usize));
+    defer gpa.free(model_file_source);
 
-    var parser = std.json.Parser.init(allocator, true);
-    var tree = try parser.parse(data);
-
+    var parser = std.json.Parser.init(gpa, true);
     defer parser.deinit();
+
+    var tree = try parser.parse(model_file_source);
     defer tree.deinit();
 
     var meta_model = try tres.parse(MetaModel, tree.root, tree.arena.allocator());
 
+    var buffer = std.ArrayListUnmanaged(u8){};
+    defer buffer.deinit(gpa);
+
+    try writeMetaModel(buffer.writer(gpa), meta_model);
+
+    var source = try buffer.toOwnedSliceSentinel(gpa, 0);
+    defer gpa.free(source);
+
+    var zig_tree = try std.zig.parse(gpa, source);
+    defer zig_tree.deinit(gpa);
+
+    const output_source = if (zig_tree.errors.len != 0) blk: {
+        std.log.warn("generated file contains syntax errors! (cannot format file)", .{});
+        break :blk source;
+    } else try zig_tree.render(gpa);
+    defer if(zig_tree.errors.len == 0) gpa.free(output_source);
+
     var out_file = try std.fs.cwd().createFile("lsp.zig", .{});
     defer out_file.close();
 
-    var bufw = std.io.bufferedWriter(out_file.writer());
-    try writeMetaModel(bufw.writer(), meta_model);
-    try bufw.flush();
+    try out_file.writeAll(output_source);
 }
 
-fn writeDocs(writer: anytype, docs: []const u8) !void {
+fn writeDocs(writer: anytype, docs: []const u8) @TypeOf(writer).Error!void {
     var iterator = std.mem.split(u8, docs, "\n");
     while (iterator.next()) |line| try writer.print("/// {s}\n", .{line});
 }
 
-fn writeDocsAsNormal(writer: anytype, docs: []const u8) !void {
+fn writeDocsAsNormal(writer: anytype, docs: []const u8) @TypeOf(writer).Error!void {
     var iterator = std.mem.split(u8, docs, "\n");
     while (iterator.next()) |line| try writer.print("// {s}\n", .{line});
 }
 
-fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i: usize) anyerror!void {
+fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i: usize) @TypeOf(writer).Error!void {
     switch (typ) {
         .BaseType => |base| try switch (base.name) {
             .URI => writer.writeAll("uri"),
