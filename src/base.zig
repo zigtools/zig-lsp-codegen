@@ -16,9 +16,9 @@ pub const LSPObject = std.json.ObjectMap;
 
 pub fn Map(comptime Key: type, comptime Value: type) type {
     if (Key == []const u8)
-        return std.StringHashMap(Value)
+        return std.StringHashMapUnmanaged(Value)
     else
-        return std.AutoHashMap(Key, Value);
+        return std.AutoHashMapUnmanaged(Key, Value);
 }
 
 pub const RequestId = union(enum) {
