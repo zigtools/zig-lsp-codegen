@@ -89,8 +89,9 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
         .BaseType => |base| try switch (base.name) {
             .URI => writer.writeAll("URI"),
             .DocumentUri => writer.writeAll("DocumentUri"),
-            .integer => writer.writeAll("i64"),
-            .uinteger, .decimal => writer.writeAll("u64"),
+            .integer => writer.writeAll("i32"),
+            .uinteger => writer.writeAll("u32"),
+            .decimal => writer.writeAll("f32"),
             .RegExp => writer.writeAll("RegExp"),
             .string => writer.writeAll("[]const u8"),
             .boolean => writer.writeAll("bool"),
@@ -107,7 +108,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
                 .base => |base| try switch (base.name) {
                     .Uri => writer.writeAll("Uri"),
                     .DocumentUri => writer.writeAll("DocumentUri"),
-                    .integer => writer.writeAll("i64"),
+                    .integer => writer.writeAll("i32"),
                     .string => writer.writeAll("[]const u8"),
                 },
                 .ReferenceType => |ref| try writeType(meta_model, writer, .{ .ReferenceType = ref }),
@@ -183,7 +184,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
             try writer.print("[]const u8 = \"{s}\"", .{lit.value});
         },
         .IntegerLiteralType => |lit| {
-            try writer.print("i64 = {d}", .{lit.value});
+            try writer.print("i32 = {d}", .{lit.value});
         },
         .BooleanLiteralType => |lit| {
             try writer.print("bool = {}", .{lit.value});
@@ -284,8 +285,8 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         if (enumeration.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         switch (enumeration.type.name) {
             .string => try writer.print("pub const {s} = enum {{pub const tres_string_enum = {{}};\n\n", .{std.zig.fmtId(enumeration.name)}),
-            .integer => try writer.print("pub const {s} = enum(i64) {{\n", .{std.zig.fmtId(enumeration.name)}),
-            .uinteger => try writer.print("pub const {s} = enum(u64) {{\n", .{std.zig.fmtId(enumeration.name)}),
+            .integer => try writer.print("pub const {s} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
+            .uinteger => try writer.print("pub const {s} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
         }
 
         for (enumeration.values) |entry| {
