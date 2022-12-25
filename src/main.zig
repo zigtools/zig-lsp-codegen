@@ -38,7 +38,7 @@ pub fn main() !void {
         std.log.warn("generated file contains syntax errors! (cannot format file)", .{});
         break :blk source;
     } else try zig_tree.render(gpa);
-    defer if(zig_tree.errors.len == 0) gpa.free(output_source);
+    defer if (zig_tree.errors.len == 0) gpa.free(output_source);
 
     var out_file = try std.fs.cwd().createFile("lsp.zig", .{});
     defer out_file.close();
@@ -303,14 +303,14 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
             .uinteger => try writer.print("pub const {s} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
         }
 
+        var contains_empty_enum = false;
         for (enumeration.values) |entry| {
             if (entry.documentation.asOptional()) |docs| try writeDocs(writer, docs);
             switch (entry.value) {
                 .string => |value| {
-                    if (value.len == 0)
-                        try writer.print("emptyGottaFix,\n", .{})
-                    else
-                        try writer.print("{s},\n", .{std.zig.fmtId(value)});
+                    if (value.len == 0) contains_empty_enum = true;
+                    const name = if (value.len == 0) "empty" else value;
+                    try writer.print("{s},\n", .{std.zig.fmtId(name)});
                 },
                 .number => |value| try writer.print("{s} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
             }
@@ -318,6 +318,19 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
 
         if (enumeration.values.len == 1) {
             try writer.writeAll("placeholder__, // fixes alignment issue\n");
+        }
+
+        if(contains_empty_enum) {
+            try writer.writeAll(
+                \\
+                \\pub fn tresParse(json_value: std.json.Value, maybe_allocator: ?std.mem.Allocator) error{InvalidEnumTag}!@This() {
+                \\    _ = maybe_allocator;
+                \\    if (json_value != .String) return error.InvalidEnumTag;
+                \\    if (json_value.String.len == 0) return .empty;
+                \\    return std.meta.stringToEnum(@This(), json_value.String) orelse return error.InvalidEnumTag;
+                \\}
+                \\
+            );
         }
 
         try writer.writeAll("};\n\n");
