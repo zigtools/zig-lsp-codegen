@@ -21,6 +21,115 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
         return std.AutoHashMapUnmanaged(Key, Value);
 }
 
+fn stringifyStruct(value: anytype, options: std.json.StringifyOptions, out_stream: anytype) @TypeOf(out_stream).Error!void {
+    try out_stream.writeByte('{');
+    var field_output = false;
+    var child_options = options;
+    if (child_options.whitespace) |*child_whitespace| {
+        child_whitespace.indent_level += 1;
+    }
+    const S = @typeInfo(@TypeOf(value)).Struct;
+    inline for (S.fields) |Field| {
+        // don't include void fields
+        if (Field.type == void) continue;
+
+        var emit_field = true;
+
+        // don't include optional fields that are null when emit_null_optional_fields is set to false
+        if (@typeInfo(Field.type) == .Optional) {
+            if (options.emit_null_optional_fields == false) {
+                if (@field(value, Field.name) == null) {
+                    emit_field = false;
+                }
+            }
+        }
+
+        if (emit_field) {
+            if (!field_output) {
+                field_output = true;
+            } else {
+                try out_stream.writeByte(',');
+            }
+            if (child_options.whitespace) |child_whitespace| {
+                try child_whitespace.outputIndent(out_stream);
+            }
+            try std.json.encodeJsonString(Field.name, options, out_stream);
+            try out_stream.writeByte(':');
+            if (child_options.whitespace) |child_whitespace| {
+                if (child_whitespace.separator) {
+                    try out_stream.writeByte(' ');
+                }
+            }
+
+            const is_map = comptime switch (@typeInfo(Field.type)) {
+                .Struct => tres.isHashMap(Field.type),
+                else => false,
+            };
+
+            const is_optional_of_map = comptime switch (@typeInfo(Field.type)) {
+                .Optional => |optional| switch (@typeInfo(optional.child)) {
+                    .Struct => tres.isHashMap(optional.child),
+                    else => false,
+                },
+                else => false,
+            };
+
+            if (is_optional_of_map) {
+                if (@field(value, Field.name)) |payload| {
+                    try stringifyHashMap(payload, child_options, out_stream);
+                } else {
+                    try std.json.stringify(null, child_options, out_stream);
+                }
+            } else if (is_map) {
+                try stringifyHashMap(@field(value, Field.name), child_options, out_stream);
+            } else {
+                try std.json.stringify(@field(value, Field.name), child_options, out_stream);
+            }
+        }
+    }
+    if (field_output) {
+        if (options.whitespace) |whitespace| {
+            try whitespace.outputIndent(out_stream);
+        }
+    }
+    try out_stream.writeByte('}');
+}
+
+fn stringifyHashMap(value: anytype, options: std.json.StringifyOptions, out_stream: anytype) @TypeOf(out_stream).Error!void {
+    try out_stream.writeByte('{');
+    var field_output = false;
+    var child_options = options;
+    if (child_options.whitespace) |*child_whitespace| {
+        child_whitespace.indent_level += 1;
+    }
+    var it = value.iterator();
+    while (it.next()) |entry| {
+        if (!field_output) {
+            field_output = true;
+        } else {
+            try out_stream.writeByte(',');
+        }
+        if (child_options.whitespace) |child_whitespace| {
+            try child_whitespace.outputIndent(out_stream);
+        }
+
+        try std.json.stringify(entry.key_ptr.*, options, out_stream);
+        try out_stream.writeByte(':');
+        if (child_options.whitespace) |child_whitespace| {
+            if (child_whitespace.separator) {
+                try out_stream.writeByte(' ');
+            }
+        }
+        try std.json.stringify(entry.value_ptr.*, child_options, out_stream);
+    }
+    if (field_output) {
+        if (options.whitespace) |whitespace| {
+            try whitespace.outputIndent(out_stream);
+        }
+    }
+    try out_stream.writeByte('}');
+}
+
 pub const RequestId = union(enum) {
     integer: i64,
     string: []const u8,
