@@ -191,6 +191,9 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
         },
         .StructureLiteralType => |lit| {
             try writer.writeAll("struct {\n");
+            try writer.writeAll("pub const tres_null_meaning = .{");
+            for (lit.value.properties) |property| try writeNullMeaning(meta_model, writer, property);
+            try writer.writeAll("};\n\n");
             for (lit.value.properties) |property| try writeProperty(meta_model, writer, property);
             try writer.writeAll("\n}");
         },
@@ -210,7 +213,6 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
     var isUndefinedable = property.optional.asOptional() orelse false;
 
     if (property.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-    if (isUndefinedable) try writer.writeAll("/// field can be undefined, but this possible state is non-critical\n");
     switch (property.type) {
         .StringLiteralType,
         .IntegerLiteralType,
@@ -218,16 +220,98 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
         => try writer.writeAll("comptime "),
         else => {},
     }
+
     try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
-    if (!isTypeNull(property.type) and isUndefinedable)
-        try writer.writeAll("?");
+    if (isUndefinedable) try writer.writeAll("?");
     try writeType(meta_model, writer, property.type);
     if (isTypeNull(property.type) or isUndefinedable)
         try writer.writeAll("= null");
     try writer.writeAll(",\n");
 }
 
-fn writeProperties(meta_model: MetaModel, writer: anytype, structure: MetaModel.Structure, maybe_extender: ?MetaModel.Structure) anyerror!void {
+fn writeNullMeaning(_: MetaModel, writer: anytype, property: MetaModel.Property) anyerror!void {
+    const isUndefinedable = property.optional.asOptional() orelse false;
+    const isNullable = isTypeNull(property.type);
+
+    if (!isUndefinedable and !isNullable) return;
+
+    try writer.print(".{s} = ", .{std.zig.fmtId(property.name)});
+
+    if (isUndefinedable and isNullable)
+        try writer.writeAll(".dual")
+    else if (isUndefinedable and !isNullable)
+        try writer.writeAll(".field")
+    else if (!isUndefinedable and isNullable)
+        try writer.writeAll(".value");
+
+    try writer.writeAll(",\n");
+}
+
+fn writeNullMeanings(
+    meta_model: MetaModel,
+    writer: anytype,
+    structure: MetaModel.Structure,
+    maybe_extender: ?MetaModel.Structure,
+) anyerror!void {
+    z: for (structure.properties) |property| {
+        if (maybe_extender) |ext| {
+            for (ext.properties) |ext_property| {
+                if (std.mem.eql(u8, property.name, ext_property.name)) {
+                    std.log.info("Skipping implemented field emission: {s}", .{property.name});
+                    continue :z;
+                }
+            }
+        }
+        try writeNullMeaning(meta_model, writer, property);
+    }
+
+    if (structure.extends.asOptional()) |extends| {
+        for (extends) |ext| {
+            switch (ext) {
+                .ReferenceType => |ref| {
+                    try writer.print("\n\n// Extends {s}\n", .{ref.name});
+
+                    for (meta_model.structures) |s| {
+                        if (std.mem.eql(u8, s.name, ref.name)) {
+                            try writeNullMeanings(meta_model, writer, s, structure);
+                            break;
+                        }
+                    }
+
+                    try writer.writeAll("\n\n");
+                },
+                else => @panic("Expected reference for extends!"),
+            }
+        }
+    }
+
+    if (structure.mixins.asOptional()) |mixes| {
+        for (mixes) |ext| {
+            switch (ext) {
+                .ReferenceType => |ref| {
+                    try writer.print("\n\n// Uses mixin {s}\n", .{ref.name});
+
+                    for (meta_model.structures) |s| {
+                        if (std.mem.eql(u8, s.name, ref.name)) {
+                            try writeNullMeanings(meta_model, writer, s, structure);
+                            break;
+                        }
+                    }
+
+                    try writer.writeAll("\n\n");
+                },
+                else => @panic("Expected reference for mixin!"),
+            }
+        }
+    }
+}
+
+fn writeProperties(
+    meta_model: MetaModel,
+    writer: anytype,
+    structure: MetaModel.Structure,
+    maybe_extender: ?MetaModel.Structure,
+) anyerror!void {
     z: for (structure.properties) |property| {
         if (maybe_extender) |ext| {
             for (ext.properties) |ext_property| {
@@ -320,7 +404,7 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
             try writer.writeAll("placeholder__, // fixes alignment issue\n");
         }
 
-        if(contains_empty_enum) {
+        if (contains_empty_enum) {
             try writer.writeAll(
                 \\
                 \\pub fn tresParse(json_value: std.json.Value, maybe_allocator: ?std.mem.Allocator) error{InvalidEnumTag}!@This() {
@@ -343,6 +427,9 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         if (structure.documentation.asOptional()) |docs| try writeDocs(writer, docs);
         try writer.print("pub const {s} = struct {{\n", .{std.zig.fmtId(structure.name)});
 
+        try writer.writeAll("pub const tres_null_meaning = .{");
+        try writeNullMeanings(meta_model, writer, structure, null);
+        try writer.writeAll("};\n\n");
         try writeProperties(meta_model, writer, structure, null);
 
         try writer.writeAll("};\n\n");

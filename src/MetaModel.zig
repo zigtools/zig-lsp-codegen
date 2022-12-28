@@ -55,7 +55,7 @@ pub const BaseTypeName = enum {
     RegExp,
     string,
     boolean,
-    @"null",
+    null,
 };
 
 pub const BooleanLiteralType = struct {
