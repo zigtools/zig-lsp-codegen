@@ -34,7 +34,7 @@ pub const ResponseError = struct {
 
     /// A primitive or structured value that contains additional
     /// information about the error. Can be omitted.
-    data: std.json.Value = .Null,
+    data: std.json.Value = .null,
 };
 
 pub const MessageDirection = enum {

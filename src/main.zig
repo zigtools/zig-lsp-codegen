@@ -15,7 +15,7 @@ pub fn main() !void {
     var model_file_source = try input_model_file.readToEndAlloc(gpa, std.math.maxInt(usize));
     defer gpa.free(model_file_source);
 
-    var parser = std.json.Parser.init(gpa, true);
+    var parser = std.json.Parser.init(gpa, .alloc_always);
     defer parser.deinit();
 
     var tree = try parser.parse(model_file_source);
@@ -31,7 +31,7 @@ pub fn main() !void {
     var source = try buffer.toOwnedSliceSentinel(gpa, 0);
     defer gpa.free(source);
 
-    var zig_tree = try std.zig.parse(gpa, source);
+    var zig_tree = try std.zig.Ast.parse(gpa, source, .zig);
     defer zig_tree.deinit(gpa);
 
     const output_source = if (zig_tree.errors.len != 0) blk: {
@@ -172,7 +172,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
                 if (has_null) try writer.writeByte('?');
 
                 try writer.writeAll("union(enum) {");
-                for (ort.items[0..if (has_null) ort.items.len - 1 else ort.items.len]) |sub_type, i| {
+                for (ort.items[0..if (has_null) ort.items.len - 1 else ort.items.len], 0..) |sub_type, i| {
                     try guessTypeName(meta_model, writer, sub_type, i);
                     try writer.writeAll(": ");
                     try writeType(meta_model, writer, sub_type);
@@ -183,7 +183,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
         },
         .TupleType => |tup| {
             try writer.writeAll("struct{");
-            for (tup.items) |t, i| {
+            for (tup.items, 0..) |t, i| {
                 try writeType(meta_model, writer, t);
                 if (tup.items.len - 1 != i) try writer.writeAll(", ");
             }
@@ -409,9 +409,9 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
                 \\
                 \\pub fn tresParse(json_value: std.json.Value, maybe_allocator: ?std.mem.Allocator) error{InvalidEnumTag}!@This() {
                 \\    _ = maybe_allocator;
-                \\    if (json_value != .String) return error.InvalidEnumTag;
-                \\    if (json_value.String.len == 0) return .empty;
-                \\    return std.meta.stringToEnum(@This(), json_value.String) orelse return error.InvalidEnumTag;
+                \\    if (json_value != .string) return error.InvalidEnumTag;
+                \\    if (json_value.string.len == 0) return .empty;
+                \\    return std.meta.stringToEnum(@This(), json_value.string) orelse return error.InvalidEnumTag;
                 \\}
                 \\
             );
