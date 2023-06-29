@@ -98,7 +98,7 @@ fn isTypeNull(typ: MetaModel.Type) bool {
     return (ort.items.len == 2 and ort.items[1] == .BaseType and ort.items[1].BaseType.name == .null) or (ort.items[ort.items.len - 1] == .BaseType and ort.items[ort.items.len - 1].BaseType.name == .null);
 }
 
-fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerror!void {
+fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeOf(writer).Error!void {
     switch (typ) {
         .BaseType => |base| try switch (base.name) {
             .URI => writer.writeAll("URI"),
@@ -209,7 +209,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) anyerr
     }
 }
 
-fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) anyerror!void {
+fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) @TypeOf(writer).Error!void {
     var isUndefinedable = property.optional.asOptional() orelse false;
 
     if (property.documentation.asOptional()) |docs| try writeDocs(writer, docs);
@@ -252,7 +252,7 @@ fn writeNullMeanings(
     writer: anytype,
     structure: MetaModel.Structure,
     maybe_extender: ?MetaModel.Structure,
-) anyerror!void {
+) @TypeOf(writer).Error!void {
     z: for (structure.properties) |property| {
         if (maybe_extender) |ext| {
             for (ext.properties) |ext_property| {
@@ -311,7 +311,7 @@ fn writeProperties(
     writer: anytype,
     structure: MetaModel.Structure,
     maybe_extender: ?MetaModel.Structure,
-) anyerror!void {
+) @TypeOf(writer).Error!void {
     z: for (structure.properties) |property| {
         if (maybe_extender) |ext| {
             for (ext.properties) |ext_property| {
