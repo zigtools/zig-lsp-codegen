@@ -47,12 +47,12 @@ pub fn main() !void {
 }
 
 fn writeDocs(writer: anytype, docs: []const u8) @TypeOf(writer).Error!void {
-    var iterator = std.mem.split(u8, docs, "\n");
+    var iterator = std.mem.splitScalar(u8, docs, '\n');
     while (iterator.next()) |line| try writer.print("/// {s}\n", .{line});
 }
 
 fn writeDocsAsNormal(writer: anytype, docs: []const u8) @TypeOf(writer).Error!void {
-    var iterator = std.mem.split(u8, docs, "\n");
+    var iterator = std.mem.splitScalar(u8, docs, '\n');
     while (iterator.next()) |line| try writer.print("// {s}\n", .{line});
 }
 
