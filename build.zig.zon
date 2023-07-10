@@ -2,10 +2,5 @@
     .name = "lspmm-zig",
     .version = "0.1.0",
 
-    .dependencies = .{
-        .tres = .{
-            .url = "https://github.com/ziglibs/tres/archive/707a09313b42e05d6ae22d1590499eece5f968ce.tar.gz",
-            .hash = "1220beaae8d152baa941a10b7ef3d3a59d093b257047035e2373c3c2f876ad29ccc8",
-        },
-    },
+    .dependencies = .{},
 }
