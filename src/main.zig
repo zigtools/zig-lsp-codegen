@@ -365,102 +365,164 @@ fn writeProperties(
     }
 }
 
-pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
+fn writeRequest(writer: anytype, meta_model: MetaModel, request: MetaModel.Request) @TypeOf(writer).Error!void {
+    if (request.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
+    try writer.print(".{{.method = \"{s}\", .documentation =", .{request.method});
+    if (request.documentation.asOptional()) |value|
+        try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
+    else
+        try writer.writeAll("null");
+    try writer.print(", .direction = .{s}, .Params =", .{request.messageDirection});
+
+    if (request.params.asOptional()) |params|
+        // NOTE: Multiparams not used here, so we dont have to implement them :)
+        try writeType(meta_model, writer, params.Type)
+    else
+        try writer.writeAll("null");
+
+    try writer.writeAll(", .Result =");
+    try writeType(meta_model, writer, request.result);
+
+    try writer.writeAll(", .PartialResult =");
+    if (request.partialResult.asOptional()) |pr|
+        // NOTE: Multiparams not used here, so we dont have to implement them :)
+        try writeType(meta_model, writer, pr)
+    else
+        try writer.writeAll("null");
+
+    try writer.writeAll(", .ErrorData =");
+    if (request.errorData.asOptional()) |erd|
+        // NOTE: Multiparams not used here, so we dont have to implement them :)
+        try writeType(meta_model, writer, erd)
+    else
+        try writer.writeAll("null");
+
+    try writer.writeAll(", .registration = .{.method = ");
+    if (request.registrationMethod.asOptional()) |method|
+        try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
+    else
+        try writer.writeAll("null");
+    try writer.writeAll(", .Options =");
+    if (request.registrationOptions.asOptional()) |options|
+        try writeType(meta_model, writer, options)
+    else
+        try writer.writeAll("null");
+    try writer.writeAll("},},\n");
+}
+
+fn writeNotification(writer: anytype, meta_model: MetaModel, notification: MetaModel.Notification) @TypeOf(writer).Error!void {
+    if (notification.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
+    try writer.print(".{{.method = \"{s}\", .documentation =", .{notification.method});
+    if (notification.documentation.asOptional()) |value|
+        try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
+    else
+        try writer.writeAll("null");
+    try writer.print(", .direction = .{s}, .Params =", .{notification.messageDirection});
+
+    if (notification.params.asOptional()) |params|
+        // NOTE: Multiparams not used here, so we dont have to implement them :)
+        try writeType(meta_model, writer, params.Type)
+    else
+        try writer.writeAll("null");
+    try writer.writeAll(", .registration = .{.method = ");
+    if (notification.registrationMethod.asOptional()) |method|
+        try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
+    else
+        try writer.writeAll("null");
+    try writer.writeAll(", .Options =");
+    if (notification.registrationOptions.asOptional()) |options|
+        try writeType(meta_model, writer, options)
+    else
+        try writer.writeAll("null");
+    try writer.writeAll("},},\n");
+}
+
+fn writeStructure(writer: anytype, meta_model: MetaModel, structure: MetaModel.Structure) @TypeOf(writer).Error!void {
+    if (std.mem.eql(u8, structure.name, "LSPObject")) return;
+
+    if (structure.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    try writer.print("pub const {s} = struct {{\n", .{std.zig.fmtId(structure.name)});
+
+    try writer.writeAll("pub const tres_null_meaning = .{");
+    try writeNullMeanings(meta_model, writer, structure, null);
+    try writer.writeAll("};\n\n");
+    try writeProperties(meta_model, writer, structure, null);
+
+    try writer.writeAll("};\n\n");
+}
+
+fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaModel.Enumeration) @TypeOf(writer).Error!void {
+    _ = meta_model;
+    if (enumeration.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    switch (enumeration.type.name) {
+        .string => try writer.print("pub const {s} = enum {{pub const tres_string_enum = {{}};\n\n", .{std.zig.fmtId(enumeration.name)}),
+        .integer => try writer.print("pub const {s} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
+        .uinteger => try writer.print("pub const {s} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
+    }
+
+    var contains_empty_enum = false;
+    for (enumeration.values) |entry| {
+        if (entry.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+        switch (entry.value) {
+            .string => |value| {
+                if (value.len == 0) contains_empty_enum = true;
+                const name = if (value.len == 0) "empty" else value;
+                try writer.print("{s},\n", .{std.zig.fmtId(name)});
+            },
+            .number => |value| try writer.print("{s} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
+        }
+    }
+
+    if (enumeration.values.len == 1) {
+        try writer.writeAll("placeholder__, // fixes alignment issue\n");
+    }
+
+    if (contains_empty_enum) {
+        try writer.writeAll(
+            \\
+            \\pub fn tresParse(json_value: std.json.Value, maybe_allocator: ?std.mem.Allocator) error{InvalidEnumTag}!@This() {
+            \\    _ = maybe_allocator;
+            \\    if (json_value != .string) return error.InvalidEnumTag;
+            \\    if (json_value.string.len == 0) return .empty;
+            \\    return std.meta.stringToEnum(@This(), json_value.string) orelse return error.InvalidEnumTag;
+            \\}
+            \\
+        );
+    }
+
+    try writer.writeAll("};\n\n");
+}
+
+fn writeTypeAlias(writer: anytype, meta_model: MetaModel, type_alias: MetaModel.TypeAlias) @TypeOf(writer).Error!void {
+    if (std.mem.startsWith(u8, type_alias.name, "LSP")) return;
+
+    if (type_alias.documentation.asOptional()) |docs| try writeDocs(writer, docs);
+    try writer.print("pub const {s} = ", .{std.zig.fmtId(type_alias.name)});
+    try writeType(meta_model, writer, type_alias.type);
+    try writer.writeAll(";\n\n");
+}
+
+fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
     try writer.writeAll(@embedFile("base.zig") ++ "\n");
 
     try writer.writeAll("// Type Aliases\n\n");
-    for (meta_model.typeAliases) |alias| {
-        if (std.mem.startsWith(u8, alias.name, "LSP")) continue;
-
-        if (alias.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("pub const {s} = ", .{std.zig.fmtId(alias.name)});
-        try writeType(meta_model, writer, alias.type);
-        try writer.writeAll(";\n\n");
+    for (meta_model.typeAliases) |type_alias| {
+        try writeTypeAlias(writer, meta_model, type_alias);
     }
 
     try writer.writeAll("// Enumerations\n\n");
     for (meta_model.enumerations) |enumeration| {
-        if (enumeration.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        switch (enumeration.type.name) {
-            .string => try writer.print("pub const {s} = enum {{pub const tres_string_enum = {{}};\n\n", .{std.zig.fmtId(enumeration.name)}),
-            .integer => try writer.print("pub const {s} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
-            .uinteger => try writer.print("pub const {s} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
-        }
-
-        var contains_empty_enum = false;
-        for (enumeration.values) |entry| {
-            if (entry.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-            switch (entry.value) {
-                .string => |value| {
-                    if (value.len == 0) contains_empty_enum = true;
-                    const name = if (value.len == 0) "empty" else value;
-                    try writer.print("{s},\n", .{std.zig.fmtId(name)});
-                },
-                .number => |value| try writer.print("{s} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
-            }
-        }
-
-        if (enumeration.values.len == 1) {
-            try writer.writeAll("placeholder__, // fixes alignment issue\n");
-        }
-
-        if (contains_empty_enum) {
-            try writer.writeAll(
-                \\
-                \\pub fn tresParse(json_value: std.json.Value, maybe_allocator: ?std.mem.Allocator) error{InvalidEnumTag}!@This() {
-                \\    _ = maybe_allocator;
-                \\    if (json_value != .string) return error.InvalidEnumTag;
-                \\    if (json_value.string.len == 0) return .empty;
-                \\    return std.meta.stringToEnum(@This(), json_value.string) orelse return error.InvalidEnumTag;
-                \\}
-                \\
-            );
-        }
-
-        try writer.writeAll("};\n\n");
+        try writeEnumeration(writer, meta_model, enumeration);
     }
 
     try writer.writeAll("// Structures\n\n");
     for (meta_model.structures) |structure| {
-        if (std.mem.eql(u8, structure.name, "LSPObject")) continue;
-
-        if (structure.documentation.asOptional()) |docs| try writeDocs(writer, docs);
-        try writer.print("pub const {s} = struct {{\n", .{std.zig.fmtId(structure.name)});
-
-        try writer.writeAll("pub const tres_null_meaning = .{");
-        try writeNullMeanings(meta_model, writer, structure, null);
-        try writer.writeAll("};\n\n");
-        try writeProperties(meta_model, writer, structure, null);
-
-        try writer.writeAll("};\n\n");
+        try writeStructure(writer, meta_model, structure);
     }
 
     try writer.writeAll("pub const notification_metadata = [_]NotificationMetadata{\n");
     for (meta_model.notifications) |notification| {
-        if (notification.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
-        try writer.print(".{{.method = \"{s}\", .documentation =", .{notification.method});
-        if (notification.documentation.asOptional()) |value|
-            try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
-        else
-            try writer.writeAll("null");
-        try writer.print(", .direction = .{s}, .Params =", .{notification.messageDirection});
-
-        if (notification.params.asOptional()) |params|
-            // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, params.Type)
-        else
-            try writer.writeAll("null");
-        try writer.writeAll(", .registration = .{.method = ");
-        if (notification.registrationMethod.asOptional()) |method|
-            try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
-        else
-            try writer.writeAll("null");
-        try writer.writeAll(", .Options =");
-        if (notification.registrationOptions.asOptional()) |options|
-            try writeType(meta_model, writer, options)
-        else
-            try writer.writeAll("null");
-        try writer.writeAll("},},\n");
+        try writeNotification(writer, meta_model, notification);
     }
     try writer.writeAll("\n};");
 
@@ -468,48 +530,7 @@ pub fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
 
     try writer.writeAll("pub const request_metadata = [_]RequestMetadata{\n");
     for (meta_model.requests) |request| {
-        if (request.documentation.asOptional()) |docs| try writeDocsAsNormal(writer, docs);
-        try writer.print(".{{.method = \"{s}\", .documentation =", .{request.method});
-        if (request.documentation.asOptional()) |value|
-            try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
-        else
-            try writer.writeAll("null");
-        try writer.print(", .direction = .{s}, .Params =", .{request.messageDirection});
-
-        if (request.params.asOptional()) |params|
-            // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, params.Type)
-        else
-            try writer.writeAll("null");
-
-        try writer.writeAll(", .Result =");
-        try writeType(meta_model, writer, request.result);
-
-        try writer.writeAll(", .PartialResult =");
-        if (request.partialResult.asOptional()) |pr|
-            // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, pr)
-        else
-            try writer.writeAll("null");
-
-        try writer.writeAll(", .ErrorData =");
-        if (request.errorData.asOptional()) |erd|
-            // NOTE: Multiparams not used here, so we dont have to implement them :)
-            try writeType(meta_model, writer, erd)
-        else
-            try writer.writeAll("null");
-
-        try writer.writeAll(", .registration = .{.method = ");
-        if (request.registrationMethod.asOptional()) |method|
-            try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
-        else
-            try writer.writeAll("null");
-        try writer.writeAll(", .Options =");
-        if (request.registrationOptions.asOptional()) |options|
-            try writeType(meta_model, writer, options)
-        else
-            try writer.writeAll("null");
-        try writer.writeAll("},},\n");
+        try writeRequest(writer, meta_model, request);
     }
     try writer.writeAll("\n};");
 }
