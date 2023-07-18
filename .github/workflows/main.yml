@@ -13,8 +13,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
-        with:
-          submodules: true
       - uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
@@ -32,7 +30,6 @@ jobs:
           cd artifacts
           wget https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/main/protocol/metaModel.json
           ../zig-out/bin/lspmm-zig
-          zig fmt lsp.zig
 
       - name: Upload artifacts
         if: ${{ matrix.os == 'ubuntu-latest' }}
