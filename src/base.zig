@@ -89,32 +89,54 @@ pub fn UnionParser(comptime T: type) type {
     };
 }
 
-pub fn EnumWithEmptyParser(comptime T: type) type {
+pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bool) type {
     return struct {
+        const kvs = build_kvs: {
+            const KV = struct { []const u8, T };
+            const fields = @typeInfo(T).Union.fields;
+            var kvs_array: [fields.len - 1]KV = undefined;
+            inline for (fields[0 .. fields.len - 1], 0..) |field, i| {
+                kvs_array[i] = .{ field.name, @field(T, field.name) };
+            }
+            break :build_kvs kvs_array[0..];
+        };
+        /// NOTE: this maps 'empty' to .empty when T contains an empty enum
+        /// this shouldn't happen but this doesn't do any harm
+        const map = std.ComptimeStringMap(T, kvs);
+
+        pub fn eql(a: T, b: T) bool {
+            const tag_a = std.meta.activeTag(a);
+            const tag_b = std.meta.activeTag(b);
+            if (tag_a != tag_b) return false;
+
+            if (tag_a == .custom_value) {
+                return std.mem.eql(u8, a.custom_value, b.custom_value);
+            } else {
+                return true;
+            }
+        }
+
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
-            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
-            defer switch (token) {
-                .allocated_number, .allocated_string => |slice| allocator.free(slice),
-                else => {},
-            };
-            const slice = switch (token) {
-                inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
-                else => return error.UnexpectedToken,
-            };
-            if (slice.len == 0) return .empty;
-            return std.meta.stringToEnum(T, slice) orelse return error.InvalidEnumTag;
+            const slice = try std.json.parseFromTokenSourceLeaky([]const u8, allocator, source, options);
+            if (contains_empty_enum and slice.len == 0) return .empty;
+            return map.get(slice) orelse return .{ .custom_value = slice };
         }
 
         pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!T {
-            _ = allocator;
-            _ = options;
-            if (source != .string) return error.InvalidEnumTag;
-            if (source.string.len == 0) return .empty;
-            return std.meta.stringToEnum(T, source.string) orelse return error.InvalidEnumTag;
+            const slice = try std.json.parseFromValueLeaky([]const u8, allocator, source, options);
+            if (contains_empty_enum and slice.len == 0) return .empty;
+            return map.get(slice) orelse return .{ .custom_value = slice };
         }
 
         pub fn jsonStringify(self: T, stream: anytype) @TypeOf(stream.*).Error!void {
-            try stream.write(if (self == .empty) "" else @tagName(self));
+            if (contains_empty_enum and self == .empty) {
+                try stream.write("");
+                return;
+            }
+            switch (self) {
+                .custom_value => |str| try stream.write(str),
+                else => |val| try stream.write(@tagName(val)),
+            }
         }
     };
 }
