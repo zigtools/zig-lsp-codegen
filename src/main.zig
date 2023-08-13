@@ -204,7 +204,8 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeO
 }
 
 fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) @TypeOf(writer).Error!void {
-    var isUndefinedable = property.optional orelse false;
+    const isUndefinedable = property.optional orelse false;
+    const isNull = isTypeNull(property.type);
 
     if (property.documentation) |docs| try writeDocs(writer, docs);
     // switch (property.type) {
@@ -216,9 +217,9 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
     // }
 
     try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
-    if (isUndefinedable) try writer.writeAll("?");
+    if (isUndefinedable and !isNull) try writer.writeAll("?");
     try writeType(meta_model, writer, property.type);
-    if (isTypeNull(property.type) or isUndefinedable)
+    if (isNull or isUndefinedable)
         try writer.writeAll("= null");
     try writer.writeAll(",\n");
 }
