@@ -204,7 +204,8 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeO
 }
 
 fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) @TypeOf(writer).Error!void {
-    var isUndefinedable = property.optional orelse false;
+    const isUndefinedable = property.optional orelse false;
+    const isNull = isTypeNull(property.type);
 
     if (property.documentation) |docs| try writeDocs(writer, docs);
     // switch (property.type) {
@@ -216,9 +217,9 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
     // }
 
     try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
-    if (isUndefinedable) try writer.writeAll("?");
+    if (isUndefinedable and !isNull) try writer.writeAll("?");
     try writeType(meta_model, writer, property.type);
-    if (isTypeNull(property.type) or isUndefinedable)
+    if (isNull or isUndefinedable)
         try writer.writeAll("= null");
     try writer.writeAll(",\n");
 }
@@ -365,11 +366,17 @@ fn writeStructure(writer: anytype, meta_model: MetaModel, structure: MetaModel.S
 
 fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaModel.Enumeration) @TypeOf(writer).Error!void {
     _ = meta_model;
+    const supportsCustomValues = enumeration.supportsCustomValues orelse false;
+    const supportsCustomStringValues = supportsCustomValues and enumeration.type.name == .string;
+
     if (enumeration.documentation) |docs| try writeDocs(writer, docs);
     switch (enumeration.type.name) {
-        .string => try writer.print("pub const {s} = enum {{\n", .{std.zig.fmtId(enumeration.name)}),
-        .integer => try writer.print("pub const {s} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
-        .uinteger => try writer.print("pub const {s} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
+        .string => try writer.print("pub const {} = {s} {{\n", .{
+            std.zig.fmtId(enumeration.name),
+            if (supportsCustomStringValues) "union(enum)" else "enum",
+        }),
+        .integer => try writer.print("pub const {} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
+        .uinteger => try writer.print("pub const {} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
     }
 
     var contains_empty_enum = false;
@@ -379,20 +386,24 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
             .string => |value| {
                 if (value.len == 0) contains_empty_enum = true;
                 const name = if (value.len == 0) "empty" else value;
-                try writer.print("{s},\n", .{std.zig.fmtId(name)});
+                try writer.print("{},\n", .{std.zig.fmtId(name)});
             },
-            .number => |value| try writer.print("{s} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
+            .number => |value| try writer.print("{} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
         }
     }
 
-    if (enumeration.values.len == 1) {
+    if (supportsCustomValues) {
+        switch (enumeration.type.name) {
+            .string => try writer.print("custom_value: []const u8,", .{}),
+            .integer, .uinteger => try writer.print("_,", .{}),
+        }
+    } else if (enumeration.values.len == 1) {
         try writer.writeAll("placeholder__, // fixes alignment issue\n");
     }
 
-    if (contains_empty_enum) {
-        try writer.writeAll("pub usingnamespace EnumWithEmptyParser(@This());\n");
-    }
-    if (enumeration.type.name != .string) {
+    if (supportsCustomStringValues) {
+        try writer.print("pub usingnamespace EnumCustomStringValues(@This(), {s});\n", .{if (contains_empty_enum) "true" else "false"});
+    } else if (enumeration.type.name != .string) {
         try writer.writeAll("pub usingnamespace EnumStringifyAsInt(@This());\n");
     }
 
