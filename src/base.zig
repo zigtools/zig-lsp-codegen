@@ -117,7 +117,7 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
         }
 
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
-            const slice = try std.json.parseFromTokenSourceLeaky([]const u8, allocator, source, options);
+            const slice = try std.json.Value.jsonParse(allocator, source, options);
             if (contains_empty_enum and slice.len == 0) return .empty;
             return map.get(slice) orelse return .{ .custom_value = slice };
         }
