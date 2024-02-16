@@ -91,7 +91,7 @@ fn isOrActuallyEnum(ort: MetaModel.OrType) bool {
 
 fn isTypeNull(typ: MetaModel.Type) bool {
     if (typ != .@"or") return false;
-    var ort = typ.@"or";
+    const ort = typ.@"or";
     return (ort.items.len == 2 and ort.items[1] == .base and ort.items[1].base.name == .null) or (ort.items[ort.items.len - 1] == .base and ort.items[ort.items.len - 1].base.name == .null);
 }
 
@@ -163,7 +163,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeO
                 }
                 try writer.writeByte('}');
             } else {
-                var has_null = ort.items[ort.items.len - 1] == .base and ort.items[ort.items.len - 1].base.name == .null;
+                const has_null = ort.items[ort.items.len - 1] == .base and ort.items[ort.items.len - 1].base.name == .null;
 
                 if (has_null) try writer.writeByte('?');
 

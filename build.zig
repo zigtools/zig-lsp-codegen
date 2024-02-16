@@ -25,7 +25,7 @@ pub fn build(b: *std.build.Builder) void {
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(b.getInstallStep());
 
-    var tests = b.addTest(.{
+    const tests = b.addTest(.{
         .root_source_file = .{ .path = "tests/tests.zig" },
         .target = target,
     });
