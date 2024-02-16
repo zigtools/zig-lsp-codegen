@@ -27,10 +27,6 @@ pub const BaseTypes = enum {
     string,
     boolean,
     null,
-
-    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) !void {
-        try std.json.stringify(@tagName(self), options, out_stream);
-    }
 };
 
 pub const TypeKind = enum {
@@ -45,10 +41,6 @@ pub const TypeKind = enum {
     stringLiteral,
     integerLiteral,
     booleanLiteral,
-
-    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) !void {
-        try std.json.stringify(@tagName(self), options, out_stream);
-    }
 };
 
 /// Indicates in which direction a message is sent in the protocol.
@@ -56,10 +48,6 @@ pub const MessageDirection = enum {
     clientToServer,
     serverToClient,
     both,
-
-    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) !void {
-        try std.json.stringify(@tagName(self), options, out_stream);
-    }
 };
 
 /// Represents a base type like `string` or `DocumentUri`.

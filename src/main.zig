@@ -7,10 +7,16 @@ pub fn main() !void {
 
     const gpa = general_purpose_allocator.allocator();
 
-    const model_file = try std.fs.cwd().openFile("metaModel.json", .{});
-    defer model_file.close();
+    var arg_it = try std.process.ArgIterator.initWithAllocator(gpa);
 
-    const model_file_source = try model_file.readToEndAlloc(gpa, std.math.maxInt(usize));
+    _ = arg_it.skip(); // skip self exe
+    const model_file_path = try gpa.dupe(u8, arg_it.next() orelse std.debug.panic("first argument must be the path to the metaModel.json", .{}));
+    defer gpa.free(model_file_path);
+
+    const out_file_path = try gpa.dupe(u8, arg_it.next() orelse std.debug.panic("second argument must be the output path to the generated zig code", .{}));
+    defer gpa.free(out_file_path);
+
+    const model_file_source = try std.fs.cwd().readFileAlloc(gpa, model_file_path, std.math.maxInt(usize));
     defer gpa.free(model_file_source);
 
     const json_value = try std.json.parseFromSlice(std.json.Value, gpa, model_file_source, .{});
@@ -37,7 +43,9 @@ pub fn main() !void {
     } else try zig_tree.render(gpa);
     defer if (zig_tree.errors.len == 0) gpa.free(output_source);
 
-    var out_file = try std.fs.cwd().createFile("lsp.zig", .{});
+    std.fs.cwd().makePath(std.fs.path.dirname(out_file_path) orelse ".") catch {};
+
+    var out_file = try std.fs.cwd().createFile(out_file_path, .{});
     defer out_file.close();
 
     try out_file.writeAll(output_source);
@@ -379,11 +387,18 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
         .uinteger => try writer.print("pub const {} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
     }
 
+    // WORKAROUND: the enumeration value `pascal` appears twice in LanguageKind
+    var found_pascal = false;
+
     var contains_empty_enum = false;
     for (enumeration.values) |entry| {
         if (entry.documentation) |docs| try writeDocs(writer, docs);
         switch (entry.value) {
             .string => |value| {
+                if (std.mem.eql(u8, value, "pascal")) {
+                    if (found_pascal) continue;
+                    found_pascal = true;
+                }
                 if (value.len == 0) contains_empty_enum = true;
                 const name = if (value.len == 0) "empty" else value;
                 try writer.print("{},\n", .{std.zig.fmtId(name)});

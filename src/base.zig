@@ -68,7 +68,7 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
 pub fn UnionParser(comptime T: type) type {
     return struct {
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
-            const json_value = try std.json.parseFromTokenSourceLeaky(std.json.Value, allocator, source, options);
+            const json_value = try std.json.Value.jsonParse(allocator, source, options);
             return try jsonParseFromValue(allocator, json_value, options);
         }
 
@@ -95,7 +95,7 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
             const KV = struct { []const u8, T };
             const fields = @typeInfo(T).Union.fields;
             var kvs_array: [fields.len - 1]KV = undefined;
-            inline for (fields[0 .. fields.len - 1], 0..) |field, i| {
+            for (fields[0 .. fields.len - 1], 0..) |field, i| {
                 kvs_array[i] = .{ field.name, @field(T, field.name) };
             }
             break :build_kvs kvs_array[0..];
@@ -117,13 +117,13 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
         }
 
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
-            const slice = try std.json.parseFromTokenSourceLeaky([]const u8, allocator, source, options);
+            const slice = try std.json.Value.jsonParse(allocator, source, options);
             if (contains_empty_enum and slice.len == 0) return .empty;
             return map.get(slice) orelse return .{ .custom_value = slice };
         }
 
         pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!T {
-            const slice = try std.json.parseFromValueLeaky([]const u8, allocator, source, options);
+            const slice = try std.json.innerParse([]const u8, allocator, source, options);
             if (contains_empty_enum and slice.len == 0) return .empty;
             return map.get(slice) orelse return .{ .custom_value = slice };
         }

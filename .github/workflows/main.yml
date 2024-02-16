@@ -12,24 +12,22 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: goto-bus-stop/setup-zig@v1
+      - uses: actions/checkout@v4
+
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: master
 
-      - run: zig version
       - run: zig env
 
-      - name: Build
-        run: zig build
+      - run: zig build
 
       - name: Build artifacts
-        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
-          mkdir -p "artifacts/"
-          cd artifacts
           wget https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/main/protocol/metaModel.json
-          ../zig-out/bin/lspmm-zig
+          zig build run -- metaModel.json artifacts/lsp.zig
+
+      - run: zig fmt --ast-check --check artifacts/lsp.zig
 
       - name: Upload artifacts
         if: ${{ matrix.os == 'ubuntu-latest' }}
