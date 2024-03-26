@@ -20,18 +20,16 @@ jobs:
 
       - run: zig env
 
-      - run: zig build
-
-      - name: Build artifacts
+      - name: zig build test
         run: |
           wget https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/main/protocol/metaModel.json
-          zig build run -- metaModel.json artifacts/lsp.zig
+          zig build test
 
-      - run: zig fmt --ast-check --check artifacts/lsp.zig
+      - run: zig fmt --ast-check --check zig-out/artifacts/lsp.zig
 
       - name: Upload artifacts
         if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: actions/upload-artifact@v2
         with:
           name: builds
-          path: artifacts/*
+          path: zig-out/artifacts/*
