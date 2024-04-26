@@ -793,7 +793,7 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
         };
         /// NOTE: this maps 'empty' to .empty when T contains an empty enum
         /// this shouldn't happen but this doesn't do any harm
-        const map = std.ComptimeStringMap(T, kvs);
+        const map = std.StaticStringMap(T).initComptime(kvs);
 
         pub fn eql(a: T, b: T) bool {
             const tag_a = std.meta.activeTag(a);

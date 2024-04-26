@@ -73,7 +73,7 @@ fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i:
             .boolean => writer.writeAll("bool"),
             .null => writer.writeAll("@\"null\""),
         },
-        .reference => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
+        .reference => |ref| try writer.print("{}", .{std.zig.fmtId(ref.name)}),
         .array => |arr| {
             try writer.writeAll("array_of_");
             try guessTypeName(meta_model, writer, arr.element.*, 0);
@@ -116,7 +116,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeO
             .boolean => writer.writeAll("bool"),
             .null => writer.writeAll("?void"),
         },
-        .reference => |ref| try writer.print("{s}", .{std.zig.fmtId(ref.name)}),
+        .reference => |ref| try writer.print("{}", .{std.zig.fmtId(ref.name)}),
         .array => |arr| {
             try writer.writeAll("[]const ");
             try writeType(meta_model, writer, arr.element.*);
@@ -224,7 +224,7 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
     //     else => {},
     // }
 
-    try writer.print("{s}: ", .{std.zig.fmtId(property.name)});
+    try writer.print("{}: ", .{std.zig.fmtId(property.name)});
     if (isUndefinedable and !isNull) try writer.writeAll("?");
     try writeType(meta_model, writer, property.type);
     if (isNull or isUndefinedable)
@@ -298,7 +298,7 @@ fn writeRequest(writer: anytype, meta_model: MetaModel, request: MetaModel.Reque
         try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
     else
         try writer.writeAll("null");
-    try writer.print(", .direction = .{s}, .Params =", .{std.zig.fmtId(@tagName(request.messageDirection))});
+    try writer.print(", .direction = .{}, .Params =", .{std.zig.fmtId(@tagName(request.messageDirection))});
 
     if (request.params) |params|
         // NOTE: Multiparams not used here, so we dont have to implement them :)
@@ -341,7 +341,7 @@ fn writeNotification(writer: anytype, meta_model: MetaModel, notification: MetaM
         try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
     else
         try writer.writeAll("null");
-    try writer.print(", .direction = .{s}, .Params =", .{std.zig.fmtId(@tagName(notification.messageDirection))});
+    try writer.print(", .direction = .{}, .Params =", .{std.zig.fmtId(@tagName(notification.messageDirection))});
 
     if (notification.params) |params|
         // NOTE: Multiparams not used here, so we dont have to implement them :)
@@ -365,7 +365,7 @@ fn writeStructure(writer: anytype, meta_model: MetaModel, structure: MetaModel.S
     if (std.mem.eql(u8, structure.name, "LSPObject")) return;
 
     if (structure.documentation) |docs| try writeDocs(writer, docs);
-    try writer.print("pub const {s} = struct {{\n", .{std.zig.fmtId(structure.name)});
+    try writer.print("pub const {} = struct {{\n", .{std.zig.fmtId(structure.name)});
 
     try writeProperties(meta_model, writer, structure, null);
 
@@ -429,7 +429,7 @@ fn writeTypeAlias(writer: anytype, meta_model: MetaModel, type_alias: MetaModel.
     if (std.mem.startsWith(u8, type_alias.name, "LSP")) return;
 
     if (type_alias.documentation) |docs| try writeDocs(writer, docs);
-    try writer.print("pub const {s} = ", .{std.zig.fmtId(type_alias.name)});
+    try writer.print("pub const {} = ", .{std.zig.fmtId(type_alias.name)});
     try writeType(meta_model, writer, type_alias.type);
     try writer.writeAll(";\n\n");
 }
