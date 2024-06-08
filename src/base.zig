@@ -656,6 +656,62 @@ pub const JsonRPCMessage = union(enum) {
     }
 };
 
+pub fn ResultType(comptime method: []const u8) type {
+    if (getRequestMetadata(method)) |meta| return meta.Result;
+    if (isNotificationMethod(method)) return void;
+    @compileError("unknown method '" ++ method ++ "'");
+}
+
+pub fn ParamsType(comptime method: []const u8) type {
+    if (getRequestMetadata(method)) |meta| return meta.Params orelse void;
+    if (getNotificationMetadata(method)) |meta| return meta.Params orelse void;
+    @compileError("unknown method '" ++ method ++ "'");
+}
+
+pub fn getRequestMetadata(comptime method: []const u8) ?RequestMetadata {
+    for (request_metadata) |meta| {
+        if (std.mem.eql(u8, method, meta.method)) {
+            return meta;
+        }
+    }
+    return null;
+}
+
+pub fn getNotificationMetadata(comptime method: []const u8) ?NotificationMetadata {
+    for (notification_metadata) |meta| {
+        if (std.mem.eql(u8, method, meta.method)) {
+            return meta;
+        }
+    }
+    return null;
+}
+
+const request_method_set: std.StaticStringMap(void) = blk: {
+    var kvs_list: [request_metadata.len]struct { []const u8 } = undefined;
+    for (request_metadata, &kvs_list) |meta, *kv| {
+        kv.* = .{meta.method};
+    }
+    break :blk std.StaticStringMap(void).initComptime(kvs_list);
+};
+
+const notification_method_set = blk: {
+    var kvs_list: [notification_metadata.len]struct { []const u8 } = undefined;
+    for (notification_metadata, &kvs_list) |meta, *kv| {
+        kv.* = .{meta.method};
+    }
+    break :blk std.StaticStringMap(void).initComptime(&kvs_list);
+};
+
+/// Return whether there is a request with the given method name.
+pub fn isRequestMethod(method: []const u8) bool {
+    return request_method_set.has(method);
+}
+
+/// Return whether there is a notification with the given method name.
+pub fn isNotificationMethod(method: []const u8) bool {
+    return notification_method_set.has(method);
+}
+
 /// Indicates in which direction a message is sent in the protocol.
 pub const MessageDirection = enum {
     client_to_server,
