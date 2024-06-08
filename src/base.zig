@@ -722,8 +722,8 @@ pub const Message = union(enum) {
 
 /// Indicates in which direction a message is sent in the protocol.
 pub const MessageDirection = enum {
-    clientToServer,
-    serverToClient,
+    client_to_server,
+    server_to_client,
     both,
 };
 

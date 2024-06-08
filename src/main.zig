@@ -61,6 +61,14 @@ fn writeDocsAsNormal(writer: anytype, docs: []const u8) @TypeOf(writer).Error!vo
     while (iterator.next()) |line| try writer.print("// {s}\n", .{line});
 }
 
+fn writeMessageDirection(writer: anytype, message_direction: MetaModel.MessageDirection) @TypeOf(writer).Error!void {
+    try writer.print(".{s}", .{switch (message_direction) {
+        .clientToServer => "client_to_server",
+        .serverToClient => "server_to_client",
+        .both => "both",
+    }});
+}
+
 fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i: usize) @TypeOf(writer).Error!void {
     switch (typ) {
         .base => |base| try switch (base.name) {
@@ -302,8 +310,11 @@ fn writeRequest(writer: anytype, meta_model: MetaModel, request: MetaModel.Reque
         try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
     else
         try writer.writeAll("null");
-    try writer.print(", .direction = .{}, .Params =", .{std.zig.fmtId(@tagName(request.messageDirection))});
 
+    try writer.writeAll(", .direction = ");
+    try writeMessageDirection(writer, request.messageDirection);
+
+    try writer.writeAll(", .Params =");
     if (request.params) |params|
         // NOTE: Multiparams not used here, so we dont have to implement them :)
         try writeType(meta_model, writer, params.Type)
@@ -345,8 +356,11 @@ fn writeNotification(writer: anytype, meta_model: MetaModel, notification: MetaM
         try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
     else
         try writer.writeAll("null");
-    try writer.print(", .direction = .{}, .Params =", .{std.zig.fmtId(@tagName(notification.messageDirection))});
 
+    try writer.writeAll(", .direction = ");
+    try writeMessageDirection(writer, notification.messageDirection);
+
+    try writer.writeAll(", .Params =");
     if (notification.params) |params|
         // NOTE: Multiparams not used here, so we dont have to implement them :)
         try writeType(meta_model, writer, params.Type)
