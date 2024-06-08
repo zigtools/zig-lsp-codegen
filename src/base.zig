@@ -776,6 +776,9 @@ pub fn EnumStringifyAsInt(comptime T: type) type {
     };
 }
 
+pub const notification_metadata: [@field(@This(), "notification_metadata_generated").len]NotificationMetadata = @field(@This(), "notification_metadata_generated");
+pub const request_metadata: [@field(@This(), "request_metadata_generated").len]RequestMetadata = @field(@This(), "request_metadata_generated");
+
 comptime {
     _ = @field(@This(), "notification_metadata");
     _ = @field(@This(), "request_metadata");

@@ -471,13 +471,13 @@ fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
         try writeStructure(writer, meta_model, structure);
     }
 
-    try writer.writeAll("pub const notification_metadata = [_]NotificationMetadata{\n");
+    try writer.writeAll("const notification_metadata_generated = [_]NotificationMetadata{\n");
     for (meta_model.notifications) |notification| {
         try writeNotification(writer, meta_model, notification);
     }
     try writer.writeAll("\n};");
 
-    try writer.writeAll("pub const request_metadata = [_]RequestMetadata{\n");
+    try writer.writeAll("const request_metadata_generated = [_]RequestMetadata{\n");
     for (meta_model.requests) |request| {
         try writeRequest(writer, meta_model, request);
     }
