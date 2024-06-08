@@ -226,6 +226,10 @@ fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Pro
 
     try writer.print("{}: ", .{std.zig.fmtId(property.name)});
     if (isUndefinedable and !isNull) try writer.writeAll("?");
+    // WORKAROUND: recursive SelectionRange
+    if (property.type == .reference and std.mem.eql(u8, property.type.reference.name, "SelectionRange")) {
+        try writer.writeByte('*');
+    }
     try writeType(meta_model, writer, property.type);
     if (isNull or isUndefinedable)
         try writer.writeAll("= null");
