@@ -54,10 +54,10 @@ test {
         const sample_entry = parsed_sample_entry.value;
 
         if (sample_entry.isLSPMessage) {
-            const message = try std.json.parseFromValue(lsp.Message, std.testing.allocator, sample_entry.message, .{});
+            const message = try std.json.parseFromValue(lsp.JsonRPCMessage, std.testing.allocator, sample_entry.message, .{});
             defer message.deinit();
 
-            const MessageTag = std.meta.Tag(lsp.Message);
+            const MessageTag = std.meta.Tag(lsp.JsonRPCMessage);
             const expected_tag: MessageTag = switch (sample_entry.type) {
                 .@"send-request", .@"receive-request" => .request,
                 .@"send-notification", .@"receive-notification" => .notification,

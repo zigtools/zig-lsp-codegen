@@ -12,12 +12,13 @@ pub const LSPAny = std.json.Value;
 pub const LSPArray = []LSPAny;
 pub const LSPObject = std.json.ArrayHashMap(std.json.Value);
 
-pub const Message = union(enum) {
+/// See https://www.jsonrpc.org/specification
+pub const JsonRPCMessage = union(enum) {
     request: Request,
     notification: Notification,
     response: Response,
 
-    pub fn method(message: Message) ?[]const u8 {
+    pub fn method(message: JsonRPCMessage) ?[]const u8 {
         return switch (message) {
             .request => |request| request.method,
             .notification => |notification| notification.method,
@@ -25,7 +26,7 @@ pub const Message = union(enum) {
         };
     }
 
-    pub fn params(message: Message) ?std.json.Value {
+    pub fn params(message: JsonRPCMessage) ?std.json.Value {
         return switch (message) {
             .request => |request| request.params,
             .notification => |notification| notification.params,
@@ -33,7 +34,7 @@ pub const Message = union(enum) {
         };
     }
 
-    pub fn id(message: Message) ?ID {
+    pub fn id(message: JsonRPCMessage) ?ID {
         return switch (message) {
             .request => |request| request.id,
             .notification => null,
@@ -140,7 +141,7 @@ pub const Message = union(enum) {
         allocator: std.mem.Allocator,
         source: anytype,
         options: std.json.ParseOptions,
-    ) std.json.ParseError(@TypeOf(source.*))!Message {
+    ) std.json.ParseError(@TypeOf(source.*))!JsonRPCMessage {
         if (try source.next() != .object_begin) return error.UnexpectedToken;
 
         var fields: Fields = .{};
@@ -219,7 +220,7 @@ pub const Message = union(enum) {
         allocator: std.mem.Allocator,
         source: std.json.Value,
         options: std.json.ParseOptions,
-    ) std.json.ParseFromValueError!Message {
+    ) std.json.ParseFromValueError!JsonRPCMessage {
         if (source != .object) return error.UnexpectedToken;
 
         var fields: Fields = .{};
@@ -240,7 +241,7 @@ pub const Message = union(enum) {
         return try fields.toMessage();
     }
 
-    pub fn jsonStringify(message: Message, stream: anytype) @TypeOf(stream.*).Error!void {
+    pub fn jsonStringify(message: JsonRPCMessage, stream: anytype) @TypeOf(stream.*).Error!void {
         try stream.beginObject();
         try stream.objectField("jsonrpc");
         try stream.write("2.0");
@@ -359,7 +360,7 @@ pub const Message = union(enum) {
             };
         }
 
-        fn toMessage(self: Fields) !Message {
+        fn toMessage(self: Fields) !JsonRPCMessage {
             const jsonrpc = self.jsonrpc orelse
                 return error.MissingField;
             if (!std.mem.eql(u8, jsonrpc, "2.0"))
@@ -377,16 +378,16 @@ pub const Message = union(enum) {
                 }
 
                 if (self.id) |id_val| {
-                    return Message{
-                        .request = Request{
+                    return .{
+                        .request = .{
                             .method = method_val,
                             .params = self.params,
                             .id = id_val,
                         },
                     };
                 } else {
-                    return Message{
-                        .notification = Notification{
+                    return .{
+                        .notification = .{
                             .method = method_val,
                             .params = self.params,
                         },
@@ -401,8 +402,8 @@ pub const Message = union(enum) {
                     if (!is_result_set) return error.MissingField;
                 }
 
-                return Message{
-                    .response = Response{
+                return .{
+                    .response = .{
                         .result = self.result,
                         .@"error" = self.@"error",
                         .id = self.id,
@@ -629,16 +630,16 @@ pub const Message = union(enum) {
         );
     }
 
-    fn testParse(message: []const u8, expected: Message, parse_options: std.json.ParseOptions) !void {
+    fn testParse(message: []const u8, expected: JsonRPCMessage, parse_options: std.json.ParseOptions) !void {
         const allocator = std.testing.allocator;
 
-        const parsed_from_slice = try std.json.parseFromSlice(Message, allocator, message, parse_options);
+        const parsed_from_slice = try std.json.parseFromSlice(JsonRPCMessage, allocator, message, parse_options);
         defer parsed_from_slice.deinit();
 
         const parsed_value = try std.json.parseFromSlice(std.json.Value, allocator, message, parse_options);
         defer parsed_value.deinit();
 
-        const parsed_from_value = try std.json.parseFromValue(Message, allocator, parsed_value.value, parse_options);
+        const parsed_from_value = try std.json.parseFromValue(JsonRPCMessage, allocator, parsed_value.value, parse_options);
         defer parsed_from_value.deinit();
 
         const from_slice_stringified = try std.json.stringifyAlloc(allocator, parsed_from_slice.value, .{ .whitespace = .indent_2 });
@@ -673,7 +674,7 @@ pub const Message = union(enum) {
     ) !void {
         const allocator = std.testing.allocator;
 
-        try std.testing.expectError(expected_parse_error, std.json.parseFromSlice(Message, allocator, message, parse_options));
+        try std.testing.expectError(expected_parse_error, std.json.parseFromSlice(JsonRPCMessage, allocator, message, parse_options));
 
         const parsed_value = std.json.parseFromSlice(std.json.Value, allocator, message, parse_options) catch |err| {
             try std.testing.expectEqual(expected_parse_from_error, err);
@@ -681,10 +682,10 @@ pub const Message = union(enum) {
         };
         defer parsed_value.deinit();
 
-        try std.testing.expectError(expected_parse_from_error, std.json.parseFromValue(Message, allocator, parsed_value.value, parse_options));
+        try std.testing.expectError(expected_parse_from_error, std.json.parseFromValue(JsonRPCMessage, allocator, parsed_value.value, parse_options));
     }
 
-    fn expectEqual(a: Message, b: Message) !void {
+    fn expectEqual(a: JsonRPCMessage, b: JsonRPCMessage) !void {
         try std.testing.expectEqual(std.meta.activeTag(a), std.meta.activeTag(b));
         switch (a) {
             .request => {
