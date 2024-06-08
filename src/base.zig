@@ -780,6 +780,6 @@ pub const notification_metadata: [@field(@This(), "notification_metadata_generat
 pub const request_metadata: [@field(@This(), "request_metadata_generated").len]RequestMetadata = @field(@This(), "request_metadata_generated");
 
 comptime {
-    _ = @field(@This(), "notification_metadata");
-    _ = @field(@This(), "request_metadata");
+    @setEvalBranchQuota(10_000);
+    std.testing.refAllDeclsRecursive(@This());
 }

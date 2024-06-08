@@ -27,6 +27,13 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run all the tests");
 
+    const module_tests = b.addTest(.{
+        .root_source_file = lsp_output_path,
+        .target = target,
+        .optimize = optimize,
+    });
+    test_step.dependOn(&b.addRunArtifact(module_tests).step);
+
     const tests = b.addTest(.{
         .root_source_file = b.path("tests/tests.zig"),
         .target = target,
