@@ -52,8 +52,8 @@ pub const Message = union(enum) {
 
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!ID {
             switch (try source.peekNextTokenType()) {
-                .number => return try std.json.innerParse(i64, allocator, source, options),
-                .string => return try std.json.innerParse([]const u8, allocator, source, options),
+                .number => return .{ .number = try std.json.innerParse(i64, allocator, source, options) },
+                .string => return .{ .string = try std.json.innerParse([]const u8, allocator, source, options) },
                 else => return error.SyntaxError,
             }
         }
