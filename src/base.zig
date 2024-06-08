@@ -18,30 +18,6 @@ pub const JsonRPCMessage = union(enum) {
     notification: Notification,
     response: Response,
 
-    pub fn method(message: JsonRPCMessage) ?[]const u8 {
-        return switch (message) {
-            .request => |request| request.method,
-            .notification => |notification| notification.method,
-            .response => null,
-        };
-    }
-
-    pub fn params(message: JsonRPCMessage) ?std.json.Value {
-        return switch (message) {
-            .request => |request| request.params,
-            .notification => |notification| notification.params,
-            .response => null,
-        };
-    }
-
-    pub fn id(message: JsonRPCMessage) ?ID {
-        return switch (message) {
-            .request => |request| request.id,
-            .notification => null,
-            .response => |response| response.id,
-        };
-    }
-
     /// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved for rpc-internal methods and extensions and MUST NOT be used for anything else.
     pub fn is_reserved_method_name(name: []const u8) bool {
         return std.mem.startsWith(u8, name, "rpc.");
