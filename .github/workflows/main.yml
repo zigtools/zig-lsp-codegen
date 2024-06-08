@@ -23,7 +23,7 @@ jobs:
       - name: zig build test
         run: |
           wget https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/main/protocol/metaModel.json
-          zig build test --summary all
+          zig build install test --summary all
 
       - run: zig fmt --ast-check --check zig-out/artifacts/lsp.zig
 
