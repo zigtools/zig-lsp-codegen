@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zig-lsp-codegen",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -26,10 +26,9 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallFile(lsp_output_path, "artifacts/lsp.zig").step);
 
     const test_step = b.step("test", "Run all the tests");
-    test_step.dependOn(b.getInstallStep());
 
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "tests/tests.zig" },
+        .root_source_file = b.path("tests/tests.zig"),
         .target = target,
         .optimize = optimize,
     });
