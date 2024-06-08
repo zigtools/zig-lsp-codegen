@@ -111,6 +111,30 @@ pub const JsonRPCMessage = union(enum) {
                 }
             };
         };
+
+        pub fn jsonStringify(response: Response, stream: anytype) @TypeOf(stream.*).Error!void {
+            try stream.beginObject();
+
+            try stream.objectField("jsonrpc");
+            try stream.write("2.0");
+
+            if (response.id) |id| {
+                try stream.objectField("id");
+                try stream.write(id);
+            } else if (stream.options.emit_null_optional_fields) {
+                try stream.objectField("id");
+                try stream.write(null);
+            }
+
+            try stream.objectField(if (response.result != null) "result" else "error");
+            if (response.result) |result_val| {
+                try stream.write(result_val);
+            } else if (response.@"error") |error_val| {
+                try stream.write(error_val);
+            } else unreachable;
+
+            try stream.endObject();
+        }
     };
 
     pub fn jsonParse(
@@ -218,61 +242,9 @@ pub const JsonRPCMessage = union(enum) {
     }
 
     pub fn jsonStringify(message: JsonRPCMessage, stream: anytype) @TypeOf(stream.*).Error!void {
-        try stream.beginObject();
-        try stream.objectField("jsonrpc");
-        try stream.write("2.0");
-
         switch (message) {
-            .request => |request| {
-                try stream.objectField("id");
-                switch (request.id) {
-                    .number => |number| try stream.write(number),
-                    .string => |string| try stream.write(string),
-                }
-                try stream.objectField("method");
-                try stream.write(request.method);
-
-                if (request.params) |params_val| {
-                    try stream.objectField("params");
-                    try stream.write(params_val);
-                } else if (stream.options.emit_null_optional_fields) {
-                    try stream.objectField("params");
-                    try stream.write(null);
-                }
-            },
-            .notification => |notification| {
-                try stream.objectField("method");
-                try stream.write(notification.method);
-
-                if (notification.params) |params_val| {
-                    try stream.objectField("params");
-                    try stream.write(params_val);
-                } else if (stream.options.emit_null_optional_fields) {
-                    try stream.objectField("params");
-                    try stream.write(null);
-                }
-            },
-            .response => |response| {
-                if (response.id) |id_val| {
-                    try stream.objectField("id");
-                    switch (id_val) {
-                        .number => |number| try stream.write(number),
-                        .string => |string| try stream.write(string),
-                    }
-                } else if (stream.options.emit_null_optional_fields) {
-                    try stream.objectField("id");
-                    try stream.write(null);
-                }
-
-                try stream.objectField(if (response.result != null) "result" else "error");
-                if (response.result) |result_val| {
-                    try stream.write(result_val);
-                } else if (response.@"error") |error_val| {
-                    try stream.write(error_val);
-                } else unreachable;
-            },
+            inline else => |item| try stream.write(item),
         }
-        try stream.endObject();
     }
 
     const Fields = struct {
@@ -291,15 +263,7 @@ pub const JsonRPCMessage = union(enum) {
         ) std.json.ParseError(@TypeOf(source.*))!std.meta.FieldType(@This(), field) {
             return switch (field) {
                 .jsonrpc, .method => try std.json.innerParse([]const u8, allocator, source, options),
-                .id => switch (try source.peekNextTokenType()) {
-                    .null => {
-                        std.debug.assert(try source.next() == .null);
-                        return null;
-                    },
-                    .number => ID{ .number = try std.json.innerParse(i64, allocator, source, options) },
-                    .string => ID{ .string = try std.json.innerParse([]const u8, allocator, source, options) },
-                    else => error.UnexpectedToken, // "id" field must be null/integer/string
-                },
+                .id => try std.json.innerParse(?JsonRPCMessage.ID, allocator, source, options),
                 .params => switch (try source.peekNextTokenType()) {
                     .null => {
                         std.debug.assert(try source.next() == .null);
@@ -321,12 +285,7 @@ pub const JsonRPCMessage = union(enum) {
         ) std.json.ParseFromValueError!std.meta.FieldType(@This(), field) {
             return switch (field) {
                 .jsonrpc, .method => try std.json.innerParseFromValue([]const u8, allocator, source, options),
-                .id => switch (source) {
-                    .null => null,
-                    .integer => |number| ID{ .number = number },
-                    .string => |string| ID{ .string = string },
-                    else => error.UnexpectedToken, // "id" field must be null/integer/string
-                },
+                .id => try std.json.innerParseFromValue(?JsonRPCMessage.ID, allocator, source, options),
                 .params => switch (source) {
                     .null, .object, .array => source,
                     else => error.UnexpectedToken, // "params" field must be null/object/array
