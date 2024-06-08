@@ -10,19 +10,20 @@ pub fn main() !void {
     var arg_it = try std.process.ArgIterator.initWithAllocator(gpa);
 
     _ = arg_it.skip(); // skip self exe
-    const model_file_path = try gpa.dupe(u8, arg_it.next() orelse std.debug.panic("first argument must be the path to the metaModel.json", .{}));
-    defer gpa.free(model_file_path);
+
+    const model_file = try std.fs.cwd().openFile(
+        arg_it.next() orelse std.debug.panic("first argument must be the path to the metaModel.json", .{}),
+        .{},
+    );
+    defer model_file.close();
 
     const out_file_path = try gpa.dupe(u8, arg_it.next() orelse std.debug.panic("second argument must be the output path to the generated zig code", .{}));
     defer gpa.free(out_file_path);
 
-    const model_file_source = try std.fs.cwd().readFileAlloc(gpa, model_file_path, std.math.maxInt(usize));
-    defer gpa.free(model_file_source);
+    var json_reader = std.json.reader(gpa, model_file.reader());
+    defer json_reader.deinit();
 
-    const json_value = try std.json.parseFromSlice(std.json.Value, gpa, model_file_source, .{});
-    defer json_value.deinit();
-
-    const parsed_meta_model = try std.json.parseFromValue(MetaModel, gpa, json_value.value, .{});
+    const parsed_meta_model = try std.json.parseFromTokenSource(MetaModel, gpa, &json_reader, .{});
     defer parsed_meta_model.deinit();
 
     var buffer = std.ArrayListUnmanaged(u8){};

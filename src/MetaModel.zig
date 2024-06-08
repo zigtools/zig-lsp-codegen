@@ -86,8 +86,8 @@ pub const MapKeyType = union(enum) {
     },
     reference: ReferenceType,
 
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
-        const result = try std.json.parseFromTokenSourceLeaky(struct {
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!@This() {
+        const result = try std.json.innerParse(struct {
             kind: []const u8,
             name: []const u8,
         }, allocator, source, options);
@@ -100,7 +100,7 @@ pub const MapKeyType = union(enum) {
         return error.UnexpectedToken;
     }
 
-    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) !@This() {
+    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!@This() {
         if (source != .object) return error.UnexpectedToken;
 
         const kind = source.object.get("kind") orelse return error.MissingField;
@@ -114,7 +114,7 @@ pub const MapKeyType = union(enum) {
         return error.UnexpectedToken;
     }
 
-    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) !void {
+    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) @TypeOf(out_stream.*).Error!void {
         switch (self) {
             inline else => |value| try std.json.stringify(value, options, out_stream),
         }
@@ -191,12 +191,12 @@ pub const Type = union(TypeKind) {
     integerLiteral: IntegerLiteralType,
     booleanLiteral: BooleanLiteralType,
 
-    pub fn jsonParse(allocator: std.mem.Allocator, source: std.json.Scanner, options: std.json.ParseOptions) !@This() {
-        const json_value = try std.json.parseFromTokenSourceLeaky(std.json.Value, allocator, source, options);
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!@This() {
+        const json_value = try std.json.innerParse(std.json.Value, allocator, source, options);
         return try jsonParseFromValue(allocator, json_value, options);
     }
 
-    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) !Type {
+    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!Type {
         if (source != .object) return error.UnexpectedToken;
         const kind = source.object.get("kind") orelse return error.MissingField;
         if (kind != .string) return error.UnexpectedToken;
@@ -209,7 +209,7 @@ pub const Type = union(TypeKind) {
         return error.UnexpectedToken;
     }
 
-    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) !void {
+    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) @TypeOf(out_stream.*).Error!void {
         switch (self) {
             inline else => |value| try std.json.stringify(value, options, out_stream),
         }
@@ -283,15 +283,15 @@ pub const Params = union(enum) {
     Type: Type,
     array_of_Type: []Type,
 
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!@This() {
         switch (try source.peekNextTokenType()) {
-            .object_begin => return .{ .Type = try std.json.parseFromTokenSourceLeaky(Type, allocator, source, options) },
-            .array_begin => return .{ .Type = try std.json.parseFromTokenSourceLeaky([]Type, allocator, source, options) },
-            else => return error.UnexpectedFieldType,
+            .object_begin => return .{ .Type = try std.json.innerParse(Type, allocator, source, options) },
+            .array_begin => return .{ .array_of_Type = try std.json.innerParse([]Type, allocator, source, options) },
+            else => return error.UnexpectedToken,
         }
     }
 
-    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) !@This() {
+    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!@This() {
         switch (source) {
             .object => return .{ .Type = try std.json.parseFromValueLeaky(Type, allocator, source, options) },
             .array => return .{ .array_of_Type = try std.json.parseFromValueLeaky([]Type, allocator, source, options) },
@@ -299,7 +299,7 @@ pub const Params = union(enum) {
         }
     }
 
-    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) !void {
+    pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) @TypeOf(out_stream.*).Error!void {
         switch (self) {
             inline else => |value| try std.json.stringify(value, options, out_stream),
         }
@@ -414,15 +414,15 @@ pub const EnumerationEntry = struct {
         number: f64,
         string: []const u8,
 
-        pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+        pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!@This() {
             switch (try source.peekNextTokenType()) {
-                .string => return .{ .string = try std.json.parseFromTokenSourceLeaky([]const u8, allocator, source, options) },
-                .number => return .{ .number = try std.json.parseFromTokenSourceLeaky(f64, allocator, source, options) },
+                .string => return .{ .string = try std.json.innerParse([]const u8, allocator, source, options) },
+                .number => return .{ .number = try std.json.innerParse(f64, allocator, source, options) },
                 else => return error.UnexpectedToken,
             }
         }
 
-        pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) !@This() {
+        pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!@This() {
             switch (source) {
                 .string => |s| return .{ .string = s },
                 .float, .integer => return .{ .number = try std.json.parseFromValueLeaky(f64, allocator, source, options) },
@@ -430,7 +430,7 @@ pub const EnumerationEntry = struct {
             }
         }
 
-        pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) !void {
+        pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, out_stream: anytype) @TypeOf(out_stream.*).Error!void {
             switch (self) {
                 .number => |f| try std.json.stringify(f, options, out_stream),
                 .string => |s| try std.json.stringify(s, options, out_stream),
