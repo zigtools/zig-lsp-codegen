@@ -58,7 +58,7 @@ pub const JsonRPCMessage = union(enum) {
         id: ID,
         /// The method to be invoked.
         method: []const u8,
-        /// The method's params. Can only be `.array` or `.object`.
+        /// The requests's params. The `std.json.Value` can only be `.null`, `.array` or `.object`.
         params: ?std.json.Value,
     };
 
@@ -66,7 +66,7 @@ pub const JsonRPCMessage = union(enum) {
         comptime jsonrpc: []const u8 = "2.0",
         /// The method to be invoked.
         method: []const u8,
-        /// The notification's params. Can only be `.array` or `.object`.
+        /// The notification's params. The `std.json.Value` can only be `.null`, `.array` or `.object`.
         params: ?std.json.Value,
     };
 
