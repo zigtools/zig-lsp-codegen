@@ -9,14 +9,20 @@ jobs:
   build:
     strategy:
       matrix:
+        zig-version: [master]
         os: [ubuntu-latest, macos-latest]
+        include:
+          - zig-version: "0.12.0"
+            os: ubuntu-latest
+          - zig-version: "0.13.0"
+            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: goto-bus-stop/setup-zig@v2
         with:
-          version: master
+          version: ${{ matrix.zig-version }}
 
       - run: zig env
 

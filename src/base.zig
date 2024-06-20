@@ -1007,7 +1007,7 @@ pub fn LSPMessage(
             comptime Params: type,
             /// Must be either `*std.json.Scanner`, `*std.json.Reader` or `std.json.Value`.
             comptime Source: type,
-        ) std.StaticStringMap(ParamsParserFunc(Params, Source)) {
+        ) StaticStringMap(ParamsParserFunc(Params, Source)) {
             comptime {
                 const fields = std.meta.fields(Params);
                 const has_other_field = @hasField(Params, "other");
@@ -1032,7 +1032,7 @@ pub fn LSPMessage(
                     i += 1;
                 }
 
-                return std.StaticStringMap(ParamsParserFunc(Params, Source)).initComptime(kvs_list);
+                return staticStringMapInitComptime(ParamsParserFunc(Params, Source), kvs_list);
             }
         }
 
@@ -1136,20 +1136,20 @@ pub fn getNotificationMetadata(comptime method: []const u8) ?NotificationMetadat
     return null;
 }
 
-const request_method_set: std.StaticStringMap(void) = blk: {
+const request_method_set: StaticStringMap(void) = blk: {
     var kvs_list: [request_metadata.len]struct { []const u8 } = undefined;
     for (request_metadata, &kvs_list) |meta, *kv| {
         kv.* = .{meta.method};
     }
-    break :blk std.StaticStringMap(void).initComptime(kvs_list);
+    break :blk staticStringMapInitComptime(void, kvs_list);
 };
 
-const notification_method_set = blk: {
+const notification_method_set: StaticStringMap(void) = blk: {
     var kvs_list: [notification_metadata.len]struct { []const u8 } = undefined;
     for (notification_metadata, &kvs_list) |meta, *kv| {
         kv.* = .{meta.method};
     }
-    break :blk std.StaticStringMap(void).initComptime(&kvs_list);
+    break :blk staticStringMapInitComptime(void, kvs_list);
 };
 
 /// Return whether there is a request with the given method name.
@@ -1198,6 +1198,25 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
     return std.json.ArrayHashMap(Value);
 }
 
+fn StaticStringMap(comptime T: type) type {
+    const static_string_map_renamed_zig_version = std.SemanticVersion.parse("0.13.0-dev.33+8af59d1f9") catch unreachable;
+    if (@import("builtin").zig_version.order(static_string_map_renamed_zig_version) == .lt) {
+        return type;
+    } else {
+        return std.StaticStringMap(T);
+    }
+}
+
+fn staticStringMapInitComptime(comptime T: type, comptime kvs_list: anytype) type {
+    const static_string_map_renamed_zig_version = std.SemanticVersion.parse("0.13.0-dev.33+8af59d1f9") catch unreachable;
+    if (@import("builtin").zig_version.order(static_string_map_renamed_zig_version) == .lt) {
+        @setEvalBranchQuota(kvs_list.len * kvs_list.len);
+        return std.ComptimeStringMap(T, kvs_list);
+    } else {
+        return std.StaticStringMap(T).initComptime(kvs_list);
+    }
+}
+
 pub fn UnionParser(comptime T: type) type {
     return struct {
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
@@ -1233,9 +1252,10 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
             }
             break :build_kvs kvs_array;
         };
-        /// NOTE: this maps 'empty' to .empty when T contains an empty enum
-        /// this shouldn't happen but this doesn't do any harm
-        const map = std.StaticStringMap(T).initComptime(kvs);
+
+        /// This maps 'empty' to `.empty` when `T` contains an empty enum.
+        /// This shouldn't happen but doesn't do any harm.
+        const map = staticStringMapInitComptime(T, kvs);
 
         pub fn eql(a: T, b: T) bool {
             const tag_a = std.meta.activeTag(a);
