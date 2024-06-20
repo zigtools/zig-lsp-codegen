@@ -309,7 +309,7 @@ fn formatProperties(
 
     for (extends) |ext| {
         if (ext != .reference) @panic("Expected reference for extends!");
-        try writer.print("\n\n// Extends {s}{}", .{
+        try writer.print("\n\n// Extends `{s}`{}", .{
             ext.reference.name,
             fmtReference(ext.reference, data.structure, data.meta_model),
         });
@@ -317,7 +317,7 @@ fn formatProperties(
 
     for (mixins) |ext| {
         if (ext != .reference) @panic("Expected reference for mixin!");
-        try writer.print("\n\n// Uses mixin {s}{}", .{
+        try writer.print("\n\n// Uses mixin `{s}`{}", .{
             ext.reference.name,
             fmtReference(ext.reference, data.structure, data.meta_model),
         });
