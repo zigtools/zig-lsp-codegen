@@ -52,37 +52,76 @@ pub fn main() !void {
     try out_file.writeAll(output_source);
 }
 
-fn writeDocs(writer: anytype, docs: []const u8) @TypeOf(writer).Error!void {
-    var iterator = std.mem.splitScalar(u8, docs, '\n');
-    while (iterator.next()) |line| try writer.print("/// {s}\n", .{line});
+fn formatDocs(
+    text: []const u8,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    _ = options;
+    if (fmt.len != 1) std.fmt.invalidFmtError(fmt, text);
+    const prefix = switch (fmt[0]) {
+        'n' => "// ",
+        'd' => "/// ",
+        '!' => "//! ",
+        else => std.fmt.invalidFmtError(fmt, text),
+    };
+    var iterator = std.mem.splitScalar(u8, text, '\n');
+    while (iterator.next()) |line| try writer.print("{s}{s}\n", .{ prefix, line });
 }
 
-fn writeDocsAsNormal(writer: anytype, docs: []const u8) @TypeOf(writer).Error!void {
-    var iterator = std.mem.splitScalar(u8, docs, '\n');
-    while (iterator.next()) |line| try writer.print("// {s}\n", .{line});
+/// The format specifier must be one of:
+///  * `{n}` writes normal (`//`) comments.
+///  * `{d}` writes doc-comments (`///`) comments.
+///  * `{!}` writes top-level-doc-comments (`//!`) comments.
+fn fmtDocs(text: []const u8) std.fmt.Formatter(formatDocs) {
+    return .{ .data = text };
 }
 
-fn writeMessageDirection(writer: anytype, message_direction: MetaModel.MessageDirection) @TypeOf(writer).Error!void {
-    try writer.print(".{s}", .{switch (message_direction) {
+fn formatQuotedString(
+    string: []const u8,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    _ = options;
+    if (fmt.len == 0) {
+        try writer.print("\"{}\"", .{std.zig.fmtEscapes(string)});
+    } else if (std.mem.eql(u8, fmt, "'")) {
+        try writer.print("\'{'}\'", .{std.zig.fmtEscapes(string)});
+    } else {
+        std.fmt.invalidFmtError(fmt, string);
+    }
+}
+
+/// The format specifier must be one of:
+///  * `{}` writes a double-quoted string.
+///  * `{''}` writes a single-quoted string.
+fn fmtQuotedString(string: []const u8) std.fmt.Formatter(formatQuotedString) {
+    return .{ .data = string };
+}
+
+fn messageDirectionName(message_direction: MetaModel.MessageDirection) []const u8 {
+    return switch (message_direction) {
         .clientToServer => "client_to_server",
         .serverToClient => "server_to_client",
         .both => "both",
-    }});
+    };
 }
 
 fn guessTypeName(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type, i: usize) @TypeOf(writer).Error!void {
     switch (typ) {
-        .base => |base| try switch (base.name) {
-            .URI => writer.writeAll("uri"),
-            .DocumentUri => writer.writeAll("document_uri"),
-            .integer => writer.writeAll("integer"),
-            .uinteger, .decimal => writer.writeAll("uinteger"),
-            .RegExp => writer.writeAll("regexp"),
-            .string => writer.writeAll("string"),
-            .boolean => writer.writeAll("bool"),
-            .null => writer.writeAll("@\"null\""),
+        .base => |base| switch (base.name) {
+            .URI => try writer.writeAll("uri"),
+            .DocumentUri => try writer.writeAll("document_uri"),
+            .integer => try writer.writeAll("integer"),
+            .uinteger, .decimal => try writer.writeAll("uinteger"),
+            .RegExp => try writer.writeAll("regexp"),
+            .string => try writer.writeAll("string"),
+            .boolean => try writer.writeAll("bool"),
+            .null => try writer.writeAll("@\"null\""),
         },
-        .reference => |ref| try writer.print("{}", .{std.zig.fmtId(ref.name)}),
+        .reference => |ref| try writer.print("{p}", .{std.zig.fmtId(ref.name)}),
         .array => |arr| {
             try writer.writeAll("array_of_");
             try guessTypeName(meta_model, writer, arr.element.*, 0);
@@ -112,24 +151,28 @@ fn isTypeNull(typ: MetaModel.Type) bool {
     return (ort.items.len == 2 and ort.items[1] == .base and ort.items[1].base.name == .null) or (ort.items[ort.items.len - 1] == .base and ort.items[ort.items.len - 1].base.name == .null);
 }
 
-fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeOf(writer).Error!void {
-    switch (typ) {
-        .base => |base| try switch (base.name) {
-            .URI => writer.writeAll("URI"),
-            .DocumentUri => writer.writeAll("DocumentUri"),
-            .integer => writer.writeAll("i32"),
-            .uinteger => writer.writeAll("u32"),
-            .decimal => writer.writeAll("f32"),
-            .RegExp => writer.writeAll("RegExp"),
-            .string => writer.writeAll("[]const u8"),
-            .boolean => writer.writeAll("bool"),
-            .null => writer.writeAll("?void"),
+fn formatType(
+    data: struct { meta_model: *const MetaModel, ty: MetaModel.Type },
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    _ = options;
+    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, data.ty);
+    switch (data.ty) {
+        .base => |base| switch (base.name) {
+            .URI => try writer.writeAll("URI"),
+            .DocumentUri => try writer.writeAll("DocumentUri"),
+            .integer => try writer.writeAll("i32"),
+            .uinteger => try writer.writeAll("u32"),
+            .decimal => try writer.writeAll("f32"),
+            .RegExp => try writer.writeAll("RegExp"),
+            .string => try writer.writeAll("[]const u8"),
+            .boolean => try writer.writeAll("bool"),
+            .null => try writer.writeAll("?void"),
         },
-        .reference => |ref| try writer.print("{}", .{std.zig.fmtId(ref.name)}),
-        .array => |arr| {
-            try writer.writeAll("[]const ");
-            try writeType(meta_model, writer, arr.element.*);
-        },
+        .reference => |ref| try writer.print("{p}", .{std.zig.fmtId(ref.name)}),
+        .array => |arr| try writer.print("[]const {}", .{fmtType(arr.element.*, data.meta_model)}),
         .map => |map| {
             try writer.writeAll("Map(");
             switch (map.key) {
@@ -139,30 +182,18 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeO
                     .integer => writer.writeAll("i32"),
                     .string => writer.writeAll("[]const u8"),
                 },
-                .reference => |ref| try writeType(meta_model, writer, .{ .reference = ref }),
+                .reference => |ref| try writer.print("{}", .{fmtType(.{ .reference = ref }, data.meta_model)}),
             }
-            try writer.writeAll(", ");
-            try writeType(meta_model, writer, map.value.*);
-            try writer.writeByte(')');
+            try writer.print(", {})", .{fmtType(map.value.*, data.meta_model)});
         },
         .@"and" => |andt| {
             try writer.writeAll("struct {\n");
             for (andt.items) |item| {
-                switch (item) {
-                    .reference => |ref| {
-                        try writer.print("// And {s}\n", .{ref.name});
-
-                        for (meta_model.structures) |s| {
-                            if (std.mem.eql(u8, s.name, ref.name)) {
-                                try writeProperties(meta_model, writer, s, null);
-                                break;
-                            }
-                        }
-
-                        try writer.writeAll("\n\n");
-                    },
-                    else => @panic("Unimplemented and subject encountered!"),
-                }
+                if (item != .reference) @panic("Unimplemented and subject encountered!");
+                try writer.print("// And {s}\n{}\n\n", .{
+                    item.reference.name,
+                    fmtReference(item.reference, null, data.meta_model),
+                });
             }
             try writer.writeAll("}");
         },
@@ -171,8 +202,7 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeO
             // There are no triple optional ors (I believe),
             // so this should work every time
             if (ort.items.len == 2 and ort.items[1] == .base and ort.items[1].base.name == .null) {
-                try writer.writeByte('?');
-                try writeType(meta_model, writer, ort.items[0]);
+                try writer.print("?{}", .{fmtType(ort.items[0], data.meta_model)});
             } else if (isOrActuallyEnum(ort)) {
                 try writer.writeAll("enum {");
                 for (ort.items) |sub_type| {
@@ -184,211 +214,205 @@ fn writeType(meta_model: MetaModel, writer: anytype, typ: MetaModel.Type) @TypeO
 
                 if (has_null) try writer.writeByte('?');
 
-                try writer.writeAll("union(enum) {");
+                try writer.writeAll("union(enum) {\n");
                 for (ort.items[0..if (has_null) ort.items.len - 1 else ort.items.len], 0..) |sub_type, i| {
-                    try guessTypeName(meta_model, writer, sub_type, i);
-                    try writer.writeAll(": ");
-                    try writeType(meta_model, writer, sub_type);
-                    try writer.writeAll(",\n");
+                    try guessTypeName(data.meta_model.*, writer, sub_type, i);
+                    try writer.print(": {},\n", .{fmtType(sub_type, data.meta_model)});
                 }
-                try writer.writeAll("pub usingnamespace UnionParser(@This());");
-                try writer.writeByte('}');
+                try writer.writeAll("pub usingnamespace UnionParser(@This());\n}");
             }
         },
         .tuple => |tup| {
-            try writer.writeAll("struct{");
-            for (tup.items, 0..) |t, i| {
-                try writeType(meta_model, writer, t);
-                if (tup.items.len - 1 != i) try writer.writeAll(", ");
+            try writer.writeAll("struct {");
+            for (tup.items, 0..) |ty, i| {
+                if (i != 0) try writer.writeByte(',');
+                try writer.print(" {}", .{fmtType(ty, data.meta_model)});
             }
-            try writer.writeAll("}");
+            try writer.writeAll(" }");
         },
         .literal => |lit| {
-            try writer.writeAll("struct {\n");
-            for (lit.value.properties) |property| try writeProperty(meta_model, writer, property);
-            try writer.writeAll("\n}");
+            try writer.writeAll("struct {");
+            if (lit.value.properties.len != 0) {
+                for (lit.value.properties) |property| {
+                    try writer.print("\n{}", .{fmtProperty(property, data.meta_model)});
+                }
+                try writer.writeByte('\n');
+            }
+            try writer.writeByte('}');
         },
-        .stringLiteral => |lit| {
-            try writer.print("[]const u8 = \"{s}\"", .{lit.value});
-        },
-        .integerLiteral => |lit| {
-            try writer.print("i32 = {d}", .{lit.value});
-        },
-        .booleanLiteral => |lit| {
-            try writer.print("bool = {}", .{lit.value});
-        },
+        .stringLiteral => |lit| try writer.print("[]const u8 = \"{}\"", .{std.zig.fmtEscapes(lit.value)}),
+        .integerLiteral => |lit| try writer.print("i32 = {d}", .{lit.value}),
+        .booleanLiteral => |lit| try writer.print("bool = {}", .{lit.value}),
     }
 }
 
-fn writeProperty(meta_model: MetaModel, writer: anytype, property: MetaModel.Property) @TypeOf(writer).Error!void {
-    const isUndefinedable = property.optional orelse false;
-    const isNull = isTypeNull(property.type);
-
-    if (property.documentation) |docs| try writeDocs(writer, docs);
-    // switch (property.type) {
-    //     .stringLiteral,
-    //     .integerLiteral,
-    //     .booleanLiteral,
-    //     => try writer.writeAll("comptime "),
-    //     else => {},
-    // }
-
-    try writer.print("{}: ", .{std.zig.fmtId(property.name)});
-    if (isUndefinedable and !isNull) try writer.writeAll("?");
-    // WORKAROUND: recursive SelectionRange
-    if (property.type == .reference and std.mem.eql(u8, property.type.reference.name, "SelectionRange")) {
-        try writer.writeByte('*');
-    }
-    try writeType(meta_model, writer, property.type);
-    if (isNull or isUndefinedable)
-        try writer.writeAll("= null");
-    try writer.writeAll(",\n");
+fn fmtType(ty: MetaModel.Type, meta_model: *const MetaModel) std.fmt.Formatter(formatType) {
+    return .{ .data = .{ .meta_model = meta_model, .ty = ty } };
 }
 
-fn writeProperties(
-    meta_model: MetaModel,
+fn formatProperty(
+    data: struct { meta_model: *const MetaModel, property: MetaModel.Property },
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
     writer: anytype,
-    structure: MetaModel.Structure,
-    maybe_extender: ?MetaModel.Structure,
 ) @TypeOf(writer).Error!void {
-    z: for (structure.properties) |property| {
-        if (maybe_extender) |ext| {
+    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, data.value);
+    _ = options;
+
+    const isUndefinedable = data.property.optional orelse false;
+    const isNull = isTypeNull(data.property.type);
+    // WORKAROUND: recursive SelectionRange
+    const isSelectionRange = data.property.type == .reference and std.mem.eql(u8, data.property.type.reference.name, "SelectionRange");
+
+    if (data.property.documentation) |docs| try writer.print("{d}", .{fmtDocs(docs)});
+
+    try writer.print("{p}: {s}{}{s},", .{
+        std.zig.fmtId(data.property.name),
+        if (isSelectionRange) "?*" else if (isUndefinedable and !isNull) "?" else "",
+        fmtType(data.property.type, data.meta_model),
+        if (isNull or isUndefinedable) " = null" else "",
+    });
+}
+
+fn fmtProperty(property: MetaModel.Property, meta_model: *const MetaModel) std.fmt.Formatter(formatProperty) {
+    return .{ .data = .{ .meta_model = meta_model, .property = property } };
+}
+
+fn formatProperties(
+    data: struct {
+        meta_model: *const MetaModel,
+        structure: MetaModel.Structure,
+        maybe_extender: ?MetaModel.Structure,
+    },
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, data.value);
+    _ = options;
+
+    const properties: []MetaModel.Property = data.structure.properties;
+    const extends: []MetaModel.Type = data.structure.extends orelse &.{};
+    const mixins: []MetaModel.Type = data.structure.mixins orelse &.{};
+
+    skip: for (properties) |property| {
+        if (data.maybe_extender) |ext| {
             for (ext.properties) |ext_property| {
                 if (std.mem.eql(u8, property.name, ext_property.name)) {
-                    std.log.info("Skipping implemented field emission: {s}", .{property.name});
-                    continue :z;
+                    // std.log.info("Skipping implemented field emission: {s}", .{property.name});
+                    continue :skip;
                 }
             }
         }
-        try writeProperty(meta_model, writer, property);
+        try writer.print("\n{}", .{fmtProperty(property, data.meta_model)});
     }
 
-    if (structure.extends) |extends| {
-        for (extends) |ext| {
-            switch (ext) {
-                .reference => |ref| {
-                    try writer.print("\n\n// Extends {s}\n", .{ref.name});
+    for (extends) |ext| {
+        if (ext != .reference) @panic("Expected reference for extends!");
+        try writer.print("\n\n// Extends {s}{}", .{
+            ext.reference.name,
+            fmtReference(ext.reference, data.structure, data.meta_model),
+        });
+    }
 
-                    for (meta_model.structures) |s| {
-                        if (std.mem.eql(u8, s.name, ref.name)) {
-                            try writeProperties(meta_model, writer, s, structure);
-                            break;
-                        }
-                    }
+    for (mixins) |ext| {
+        if (ext != .reference) @panic("Expected reference for mixin!");
+        try writer.print("\n\n// Uses mixin {s}{}", .{
+            ext.reference.name,
+            fmtReference(ext.reference, data.structure, data.meta_model),
+        });
+    }
+}
 
-                    try writer.writeAll("\n\n");
-                },
-                else => @panic("Expected reference for extends!"),
-            }
+fn fmtProperties(structure: MetaModel.Structure, maybe_extender: ?MetaModel.Structure, meta_model: *const MetaModel) std.fmt.Formatter(formatProperties) {
+    return .{ .data = .{ .meta_model = meta_model, .structure = structure, .maybe_extender = maybe_extender } };
+}
+
+fn formatReference(
+    data: struct {
+        meta_model: *const MetaModel,
+        reference: MetaModel.ReferenceType,
+        maybe_extender: ?MetaModel.Structure,
+    },
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, data.reference);
+    _ = options;
+
+    for (data.meta_model.structures) |s| {
+        if (std.mem.eql(u8, s.name, data.reference.name)) {
+            try writer.print("{}", .{fmtProperties(s, data.maybe_extender, data.meta_model)});
+            return;
         }
     }
+}
 
-    if (structure.mixins) |mixes| {
-        for (mixes) |ext| {
-            switch (ext) {
-                .reference => |ref| {
-                    try writer.print("\n\n// Uses mixin {s}\n", .{ref.name});
-
-                    for (meta_model.structures) |s| {
-                        if (std.mem.eql(u8, s.name, ref.name)) {
-                            try writeProperties(meta_model, writer, s, structure);
-                            break;
-                        }
-                    }
-
-                    try writer.writeAll("\n\n");
-                },
-                else => @panic("Expected reference for mixin!"),
-            }
-        }
-    }
+fn fmtReference(reference: MetaModel.ReferenceType, maybe_extender: ?MetaModel.Structure, meta_model: *const MetaModel) std.fmt.Formatter(formatReference) {
+    return .{ .data = .{ .meta_model = meta_model, .reference = reference, .maybe_extender = maybe_extender } };
 }
 
 fn writeRequest(writer: anytype, meta_model: MetaModel, request: MetaModel.Request) @TypeOf(writer).Error!void {
-    if (request.documentation) |docs| try writeDocsAsNormal(writer, docs);
-    try writer.print(".{{.method = \"{s}\", .documentation =", .{request.method});
-    if (request.documentation) |value|
-        try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
-    else
-        try writer.writeAll("null");
+    if (request.documentation) |docs| try writer.print("{n}", .{fmtDocs(docs)});
 
-    try writer.writeAll(", .direction = ");
-    try writeMessageDirection(writer, request.messageDirection);
-
-    try writer.writeAll(", .Params =");
-    if (request.params) |params|
+    try writer.print(
+        \\.{{
+        \\  .method = "{s}",
+        \\  .documentation = {?},
+        \\  .direction = .{s},
+        \\  .Params = {?},
+        \\  .Result = {},
+        \\  .PartialResult = {?},
+        \\  .ErrorData = {?},
+        \\  .registration = .{{ .method = {?}, .Options = {?} }},
+        \\}},
+        \\
+    , .{
+        request.method,
+        if (request.documentation) |documentation| fmtQuotedString(documentation) else null,
+        messageDirectionName(request.messageDirection),
         // NOTE: Multiparams not used here, so we dont have to implement them :)
-        try writeType(meta_model, writer, params.Type)
-    else
-        try writer.writeAll("null");
-
-    try writer.writeAll(", .Result =");
-    try writeType(meta_model, writer, request.result);
-
-    try writer.writeAll(", .PartialResult =");
-    if (request.partialResult) |pr|
-        try writeType(meta_model, writer, pr)
-    else
-        try writer.writeAll("null");
-
-    try writer.writeAll(", .ErrorData =");
-    if (request.errorData) |erd|
-        try writeType(meta_model, writer, erd)
-    else
-        try writer.writeAll("null");
-
-    try writer.writeAll(", .registration = .{.method = ");
-    if (request.registrationMethod) |method|
-        try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
-    else
-        try writer.writeAll("null");
-    try writer.writeAll(", .Options =");
-    if (request.registrationOptions) |options|
-        try writeType(meta_model, writer, options)
-    else
-        try writer.writeAll("null");
-    try writer.writeAll("},},\n");
+        if (request.params) |params| fmtType(params.Type, &meta_model) else null,
+        fmtType(request.result, &meta_model),
+        if (request.partialResult) |ty| fmtType(ty, &meta_model) else null,
+        if (request.errorData) |ty| fmtType(ty, &meta_model) else null,
+        if (request.registrationMethod) |method| fmtQuotedString(method) else null,
+        if (request.registrationOptions) |ty| fmtType(ty, &meta_model) else null,
+    });
 }
 
 fn writeNotification(writer: anytype, meta_model: MetaModel, notification: MetaModel.Notification) @TypeOf(writer).Error!void {
-    if (notification.documentation) |docs| try writeDocsAsNormal(writer, docs);
-    try writer.print(".{{.method = \"{s}\", .documentation =", .{notification.method});
-    if (notification.documentation) |value|
-        try writer.print("\"{}\"", .{std.zig.fmtEscapes(value)})
-    else
-        try writer.writeAll("null");
+    if (notification.documentation) |docs| try writer.print("{n}", .{fmtDocs(docs)});
 
-    try writer.writeAll(", .direction = ");
-    try writeMessageDirection(writer, notification.messageDirection);
-
-    try writer.writeAll(", .Params =");
-    if (notification.params) |params|
+    try writer.print(
+        \\.{{
+        \\  .method = "{s}",
+        \\  .documentation = {?},
+        \\  .direction = .{s},
+        \\  .Params = {?},
+        \\  .registration = .{{ .method = {?}, .Options = {?} }},
+        \\}},
+        \\
+    , .{
+        notification.method,
+        if (notification.documentation) |documentation| fmtQuotedString(documentation) else null,
+        messageDirectionName(notification.messageDirection),
         // NOTE: Multiparams not used here, so we dont have to implement them :)
-        try writeType(meta_model, writer, params.Type)
-    else
-        try writer.writeAll("null");
-    try writer.writeAll(", .registration = .{.method = ");
-    if (notification.registrationMethod) |method|
-        try writer.print("\"{}\"", .{std.zig.fmtEscapes(method)})
-    else
-        try writer.writeAll("null");
-    try writer.writeAll(", .Options =");
-    if (notification.registrationOptions) |options|
-        try writeType(meta_model, writer, options)
-    else
-        try writer.writeAll("null");
-    try writer.writeAll("},},\n");
+        if (notification.params) |params| fmtType(params.Type, &meta_model) else null,
+        if (notification.registrationMethod) |method| fmtQuotedString(method) else null,
+        if (notification.registrationOptions) |ty| fmtType(ty, &meta_model) else null,
+    });
 }
 
 fn writeStructure(writer: anytype, meta_model: MetaModel, structure: MetaModel.Structure) @TypeOf(writer).Error!void {
     if (std.mem.eql(u8, structure.name, "LSPObject")) return;
 
-    if (structure.documentation) |docs| try writeDocs(writer, docs);
-    try writer.print("pub const {} = struct {{\n", .{std.zig.fmtId(structure.name)});
-
-    try writeProperties(meta_model, writer, structure, null);
-
-    try writer.writeAll("};\n\n");
+    if (structure.documentation) |docs| try writer.print("{d}", .{fmtDocs(docs)});
+    try writer.print("pub const {p} = struct {{{}\n}};\n\n", .{
+        std.zig.fmtId(structure.name),
+        fmtProperties(structure, null, &meta_model),
+    });
 }
 
 fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaModel.Enumeration) @TypeOf(writer).Error!void {
@@ -396,14 +420,14 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
     const supportsCustomValues = enumeration.supportsCustomValues orelse false;
     const supportsCustomStringValues = supportsCustomValues and enumeration.type.name == .string;
 
-    if (enumeration.documentation) |docs| try writeDocs(writer, docs);
+    if (enumeration.documentation) |docs| try writer.print("{d}", .{fmtDocs(docs)});
     switch (enumeration.type.name) {
-        .string => try writer.print("pub const {} = {s} {{\n", .{
+        .string => try writer.print("pub const {p} = {s} {{\n", .{
             std.zig.fmtId(enumeration.name),
             if (supportsCustomStringValues) "union(enum)" else "enum",
         }),
-        .integer => try writer.print("pub const {} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
-        .uinteger => try writer.print("pub const {} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
+        .integer => try writer.print("pub const {p} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
+        .uinteger => try writer.print("pub const {p} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
     }
 
     // WORKAROUND: the enumeration value `pascal` appears twice in LanguageKind
@@ -411,7 +435,7 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
 
     var contains_empty_enum = false;
     for (enumeration.values) |entry| {
-        if (entry.documentation) |docs| try writeDocs(writer, docs);
+        if (entry.documentation) |docs| try writer.print("{d}", .{fmtDocs(docs)});
         switch (entry.value) {
             .string => |value| {
                 if (std.mem.eql(u8, value, "pascal")) {
@@ -420,23 +444,23 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
                 }
                 if (value.len == 0) contains_empty_enum = true;
                 const name = if (value.len == 0) "empty" else value;
-                try writer.print("{},\n", .{std.zig.fmtId(name)});
+                try writer.print("{p},\n", .{std.zig.fmtId(name)});
             },
-            .number => |value| try writer.print("{} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
+            .number => |value| try writer.print("{p} = {d},\n", .{ std.zig.fmtId(entry.name), value }),
         }
     }
 
     if (supportsCustomValues) {
         switch (enumeration.type.name) {
-            .string => try writer.print("custom_value: []const u8,", .{}),
-            .integer, .uinteger => try writer.print("_,", .{}),
+            .string => try writer.writeAll("custom_value: []const u8,\n"),
+            .integer, .uinteger => try writer.writeAll("_,\n"),
         }
     } else if (enumeration.values.len == 1) {
         try writer.writeAll("placeholder__, // fixes alignment issue\n");
     }
 
     if (supportsCustomStringValues) {
-        try writer.print("pub usingnamespace EnumCustomStringValues(@This(), {s});\n", .{if (contains_empty_enum) "true" else "false"});
+        try writer.print("pub usingnamespace EnumCustomStringValues(@This(), {});\n", .{contains_empty_enum});
     } else if (enumeration.type.name != .string) {
         try writer.writeAll("pub usingnamespace EnumStringifyAsInt(@This());\n");
     }
@@ -447,10 +471,8 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
 fn writeTypeAlias(writer: anytype, meta_model: MetaModel, type_alias: MetaModel.TypeAlias) @TypeOf(writer).Error!void {
     if (std.mem.startsWith(u8, type_alias.name, "LSP")) return;
 
-    if (type_alias.documentation) |docs| try writeDocs(writer, docs);
-    try writer.print("pub const {} = ", .{std.zig.fmtId(type_alias.name)});
-    try writeType(meta_model, writer, type_alias.type);
-    try writer.writeAll(";\n\n");
+    if (type_alias.documentation) |docs| try writer.print("{d}", .{fmtDocs(docs)});
+    try writer.print("pub const {p} = {};\n\n", .{ std.zig.fmtId(type_alias.name), fmtType(type_alias.type, &meta_model) });
 }
 
 fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
@@ -481,5 +503,5 @@ fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
     for (meta_model.requests) |request| {
         try writeRequest(writer, meta_model, request);
     }
-    try writer.writeAll("\n};");
+    try writer.writeAll("};\n");
 }
