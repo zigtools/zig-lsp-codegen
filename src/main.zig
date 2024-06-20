@@ -219,7 +219,12 @@ fn formatType(
                     try guessTypeName(data.meta_model.*, writer, sub_type, i);
                     try writer.print(": {},\n", .{fmtType(sub_type, data.meta_model)});
                 }
-                try writer.writeAll("pub usingnamespace UnionParser(@This());\n}");
+                try writer.writeAll(
+                    \\pub const jsonParse = UnionParser(@This()).jsonParse;
+                    \\pub const jsonParseFromValue = UnionParser(@This()).jsonParseFromValue;
+                    \\pub const jsonStringify = UnionParser(@This()).jsonStringify;
+                    \\}
+                );
             }
         },
         .tuple => |tup| {
@@ -460,9 +465,14 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
     }
 
     if (supportsCustomStringValues) {
-        try writer.print("pub usingnamespace EnumCustomStringValues(@This(), {});\n", .{contains_empty_enum});
+        try writer.print(
+            \\pub const jsonParse = EnumCustomStringValues(@This(), {0}).jsonParse;
+            \\pub const jsonParseFromValue = EnumCustomStringValues(@This(), {0}).jsonParseFromValue;
+            \\pub const jsonStringify = EnumCustomStringValues(@This(), {0}).jsonStringify;
+            \\
+        , .{contains_empty_enum});
     } else if (enumeration.type.name != .string) {
-        try writer.writeAll("pub usingnamespace EnumStringifyAsInt(@This());\n");
+        try writer.writeAll("pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;\n");
     }
 
     try writer.writeAll("};\n\n");
