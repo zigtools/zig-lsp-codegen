@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const meta_model_path = b.option([]const u8, "meta-model", "Specify path to the metaMode.json") orelse "metaModel.json";
+    const meta_model_path = b.option([]const u8, "meta-model", "Specify path to the metaModel.json") orelse "metaModel.json";
 
     const exe = b.addExecutable(.{
         .name = "zig-lsp-codegen",
