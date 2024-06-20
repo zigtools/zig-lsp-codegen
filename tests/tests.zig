@@ -77,7 +77,6 @@ comptime {
         }
     }
     for (lsp.request_metadata) |metadata| {
-        if (std.mem.eql(u8, metadata.method, "textDocument/selectionRange")) continue; // TODO
         if (metadata.Params) |Params| {
             testType(Params);
         }
