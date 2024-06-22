@@ -1362,7 +1362,48 @@ pub const request_metadata: [@field(@This(), "request_metadata_generated").len]R
 
 const lsp_types = @This();
 
+fn testType(comptime T: type) void {
+    if (T == void) return;
+    if (T == ?void) return;
+
+    const S = struct {
+        fn parseFromValue() void {
+            _ = std.json.parseFromValue(T, undefined, undefined, undefined) catch unreachable;
+        }
+        fn innerParse() void {
+            var source: std.json.Scanner = undefined;
+            _ = std.json.innerParse(T, undefined, &source, undefined) catch unreachable;
+        }
+        fn stringify() void {
+            const value: T = undefined;
+            _ = std.json.stringify(value, undefined, std.io.null_writer) catch unreachable;
+        }
+    };
+    _ = &S.parseFromValue;
+    _ = &S.innerParse;
+    _ = &S.stringify;
+}
+
 comptime {
     @setEvalBranchQuota(10_000);
+
+    for (lsp_types.notification_metadata) |metadata| {
+        if (metadata.Params) |Params| {
+            testType(Params);
+        }
+    }
+    for (lsp_types.request_metadata) |metadata| {
+        if (metadata.Params) |Params| {
+            testType(Params);
+        }
+        testType(metadata.Result);
+        if (metadata.PartialResult) |PartialResult| {
+            testType(PartialResult);
+        }
+        if (metadata.ErrorData) |ErrorData| {
+            testType(ErrorData);
+        }
+    }
+
     std.testing.refAllDeclsRecursive(@This());
 }
