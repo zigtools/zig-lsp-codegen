@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match filter") orelse &[0][]const u8{};
     const meta_model_path = b.option([]const u8, "meta-model", "Specify path to the metaModel.json") orelse "metaModel.json";
 
     const exe = b.addExecutable(.{
@@ -31,6 +32,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = lsp_output_file,
         .target = target,
         .optimize = optimize,
+        .filters = test_filters,
     });
 
     const test_step = b.step("test", "Run all the tests");
