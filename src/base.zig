@@ -1302,15 +1302,17 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
             const KV = struct { []const u8, T };
             const fields = @typeInfo(T).Union.fields;
             var kvs_array: [fields.len - 1]KV = undefined;
-            for (fields[0 .. fields.len - 1], 0..) |field, i| {
-                kvs_array[i] = .{ field.name, @field(T, field.name) };
+            for (fields[0 .. fields.len - 1], &kvs_array) |field, *kv| {
+                if (contains_empty_enum and std.mem.eql(u8, field.name, "empty")) {
+                    kv.* = .{ "", T.empty };
+                } else {
+                    kv.* = .{ field.name, @field(T, field.name) };
+                }
             }
             break :build_kvs kvs_array;
         };
 
-        /// This maps 'empty' to `.empty` when `T` contains an empty enum.
-        /// This shouldn't happen but doesn't do any harm.
-        const map = staticStringMapInitComptime(T, kvs);
+        const enum_from_string_map: StaticStringMap(void) = staticStringMapInitComptime(T, kvs);
 
         pub fn eql(a: T, b: T) bool {
             const tag_a = std.meta.activeTag(a);
@@ -1326,14 +1328,12 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
 
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
             const slice = try std.json.innerParse([]const u8, allocator, source, options);
-            if (contains_empty_enum and slice.len == 0) return .empty;
-            return map.get(slice) orelse return .{ .custom_value = slice };
+            return enum_from_string_map.get(slice) orelse return .{ .custom_value = slice };
         }
 
         pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!T {
             const slice = try std.json.parseFromValueLeaky([]const u8, allocator, source, options);
-            if (contains_empty_enum and slice.len == 0) return .empty;
-            return map.get(slice) orelse return .{ .custom_value = slice };
+            return enum_from_string_map.get(slice) orelse return .{ .custom_value = slice };
         }
 
         pub fn jsonStringify(self: T, stream: anytype) @TypeOf(stream.*).Error!void {
@@ -1349,12 +1349,143 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
     };
 }
 
+test EnumCustomStringValues {
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    {
+        const E = union(enum) {
+            foo,
+            bar,
+            baz,
+            custom_value: []const u8,
+            pub const jsonParse = EnumCustomStringValues(@This(), false).jsonParse;
+            pub const jsonStringify = EnumCustomStringValues(@This(), false).jsonStringify;
+        };
+
+        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(E{ .foo = {} }, .{})});
+        try std.testing.expectFmt("\"bar\"", "{}", .{std.json.fmt(E{ .bar = {} }, .{})});
+        try std.testing.expectFmt("\"baz\"", "{}", .{std.json.fmt(E{ .baz = {} }, .{})});
+        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(E{ .custom_value = "" }, .{})});
+        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .custom_value = "boo" }, .{})});
+
+        try std.testing.expectEqual(E.foo, try std.json.parseFromSliceLeaky(E, arena, "\"foo\"", .{}));
+        try std.testing.expectEqual(E.bar, try std.json.parseFromSliceLeaky(E, arena, "\"bar\"", .{}));
+        try std.testing.expectEqual(E.baz, try std.json.parseFromSliceLeaky(E, arena, "\"baz\"", .{}));
+
+        {
+            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"boo\"", .{});
+            try std.testing.expectEqual(E.custom_value, std.meta.activeTag(e));
+            try std.testing.expectEqualStrings("boo", e.custom_value);
+        }
+
+        {
+            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"\"", .{});
+            try std.testing.expectEqual(E.custom_value, std.meta.activeTag(e));
+            try std.testing.expectEqualStrings("", e.custom_value);
+        }
+    }
+
+    {
+        const E = union(enum) {
+            foo,
+            bar,
+            baz,
+            empty,
+            custom_value: []const u8,
+            pub const jsonParse = EnumCustomStringValues(@This(), true).jsonParse;
+            pub const jsonStringify = EnumCustomStringValues(@This(), true).jsonStringify;
+        };
+
+        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(E{ .foo = {} }, .{})});
+        try std.testing.expectFmt("\"bar\"", "{}", .{std.json.fmt(E{ .bar = {} }, .{})});
+        try std.testing.expectFmt("\"baz\"", "{}", .{std.json.fmt(E{ .baz = {} }, .{})});
+        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(E{ .empty = {} }, .{})});
+        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .custom_value = "boo" }, .{})});
+
+        try std.testing.expectEqual(E.foo, try std.json.parseFromSliceLeaky(E, arena, "\"foo\"", .{}));
+        try std.testing.expectEqual(E.bar, try std.json.parseFromSliceLeaky(E, arena, "\"bar\"", .{}));
+        try std.testing.expectEqual(E.baz, try std.json.parseFromSliceLeaky(E, arena, "\"baz\"", .{}));
+        try std.testing.expectEqual(E.empty, try std.json.parseFromSliceLeaky(E, arena, "\"\"", .{}));
+
+        {
+            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"boo\"", .{});
+            try std.testing.expectEqual(E.custom_value, std.meta.activeTag(e));
+            try std.testing.expectEqualStrings("boo", e.custom_value);
+        }
+    }
+
+    {
+        const E = union(enum) {
+            foo,
+            empty,
+            custom_value: []const u8,
+            pub const jsonParse = EnumCustomStringValues(@This(), false).jsonParse;
+            pub const jsonStringify = EnumCustomStringValues(@This(), false).jsonStringify;
+        };
+
+        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(E{ .foo = {} }, .{})});
+        try std.testing.expectFmt("\"empty\"", "{}", .{std.json.fmt(E{ .empty = {} }, .{})});
+        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .custom_value = "boo" }, .{})});
+
+        try std.testing.expectEqual(E.foo, try std.json.parseFromSliceLeaky(E, arena, "\"foo\"", .{}));
+        try std.testing.expectEqual(E.empty, try std.json.parseFromSliceLeaky(E, arena, "\"empty\"", .{}));
+
+        {
+            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"boo\"", .{});
+            try std.testing.expectEqual(E.custom_value, std.meta.activeTag(e));
+            try std.testing.expectEqualStrings("boo", e.custom_value);
+        }
+    }
+}
+
 pub fn EnumStringifyAsInt(comptime T: type) type {
     return struct {
         pub fn jsonStringify(self: T, stream: anytype) @TypeOf(stream.*).Error!void {
             try stream.write(@intFromEnum(self));
         }
     };
+}
+
+test EnumStringifyAsInt {
+    {
+        const E = enum {
+            foo,
+            bar,
+            baz,
+            pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
+        };
+        try std.testing.expectFmt("0", "{}", .{std.json.fmt(E.foo, .{})});
+        try std.testing.expectFmt("1", "{}", .{std.json.fmt(E.bar, .{})});
+        try std.testing.expectFmt("2", "{}", .{std.json.fmt(E.baz, .{})});
+    }
+
+    {
+        const E = enum(u8) {
+            foo = 2,
+            bar,
+            baz = 5,
+            pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
+        };
+        try std.testing.expectFmt("2", "{}", .{std.json.fmt(E.foo, .{})});
+        try std.testing.expectFmt("3", "{}", .{std.json.fmt(E.bar, .{})});
+        try std.testing.expectFmt("5", "{}", .{std.json.fmt(E.baz, .{})});
+    }
+
+    {
+        const E = enum(u8) {
+            foo,
+            bar = 3,
+            baz,
+            _,
+            pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
+        };
+        try std.testing.expectFmt("0", "{}", .{std.json.fmt(E.foo, .{})});
+        try std.testing.expectFmt("3", "{}", .{std.json.fmt(E.bar, .{})});
+        try std.testing.expectFmt("4", "{}", .{std.json.fmt(E.baz, .{})});
+        try std.testing.expectFmt("7", "{}", .{std.json.fmt(@as(E, @enumFromInt(7)), .{})});
+    }
 }
 
 pub const notification_metadata: [@field(@This(), "notification_metadata_generated").len]NotificationMetadata = @field(@This(), "notification_metadata_generated");
