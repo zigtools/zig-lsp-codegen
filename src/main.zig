@@ -423,18 +423,15 @@ fn writeStructure(writer: anytype, meta_model: MetaModel, structure: MetaModel.S
 
 fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaModel.Enumeration) @TypeOf(writer).Error!void {
     _ = meta_model;
-    const supportsCustomValues = enumeration.supportsCustomValues orelse false;
-    const supportsCustomStringValues = supportsCustomValues and enumeration.type.name == .string;
 
     if (enumeration.documentation) |docs| try writer.print("{d}", .{fmtDocs(docs)});
-    switch (enumeration.type.name) {
-        .string => try writer.print("pub const {p} = {s} {{\n", .{
-            std.zig.fmtId(enumeration.name),
-            if (supportsCustomStringValues) "union(enum)" else "enum",
-        }),
-        .integer => try writer.print("pub const {p} = enum(i32) {{\n", .{std.zig.fmtId(enumeration.name)}),
-        .uinteger => try writer.print("pub const {p} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.name)}),
-    }
+
+    const container_kind = switch (enumeration.type.name) {
+        .string => "union(enum)",
+        .integer => "enum(i32)",
+        .uinteger => "enum(u32)",
+    };
+    try writer.print("pub const {p} = {s} {{\n", .{ std.zig.fmtId(enumeration.name), container_kind });
 
     // WORKAROUND: the enumeration value `pascal` appears twice in LanguageKind
     var found_pascal = false;
@@ -456,24 +453,27 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
         }
     }
 
-    if (supportsCustomValues) {
-        switch (enumeration.type.name) {
-            .string => try writer.writeAll("custom_value: []const u8,\n"),
-            .integer, .uinteger => try writer.writeAll("_,\n"),
-        }
-    } else if (enumeration.values.len == 1) {
-        try writer.writeAll("placeholder__, // fixes alignment issue\n");
-    }
+    const supportsCustomValues = enumeration.supportsCustomValues orelse false;
 
-    if (supportsCustomStringValues) {
-        try writer.print(
-            \\pub const jsonParse = EnumCustomStringValues(@This(), {0}).jsonParse;
-            \\pub const jsonParseFromValue = EnumCustomStringValues(@This(), {0}).jsonParseFromValue;
-            \\pub const jsonStringify = EnumCustomStringValues(@This(), {0}).jsonStringify;
-            \\
-        , .{contains_empty_enum});
-    } else if (enumeration.type.name != .string) {
-        try writer.writeAll("pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;\n");
+    const field_name, const docs = if (supportsCustomValues) .{ "custom_value", "Custom Value" } else .{ "unknown_value", "Unknown Value" };
+    switch (enumeration.type.name) {
+        .string => {
+            try writer.print(
+                \\{s}: []const u8,
+                \\pub const jsonParse = EnumCustomStringValues(@This(), {1}).jsonParse;
+                \\pub const jsonParseFromValue = EnumCustomStringValues(@This(), {1}).jsonParseFromValue;
+                \\pub const jsonStringify = EnumCustomStringValues(@This(), {1}).jsonStringify;
+                \\
+            , .{ field_name, contains_empty_enum });
+        },
+        .integer, .uinteger => {
+            try writer.print(
+                \\/// {s}
+                \\_,
+                \\pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
+                \\
+            , .{docs});
+        },
     }
 
     try writer.writeAll("};\n\n");
