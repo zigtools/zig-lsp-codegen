@@ -18,11 +18,6 @@ pub const JsonRPCMessage = union(enum) {
     notification: Notification,
     response: Response,
 
-    /// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved for rpc-internal methods and extensions and MUST NOT be used for anything else.
-    pub fn is_reserved_method_name(name: []const u8) bool {
-        return std.mem.startsWith(u8, name, "rpc.");
-    }
-
     pub const ID = union(enum) {
         number: i64,
         string: []const u8,
@@ -245,6 +240,11 @@ pub const JsonRPCMessage = union(enum) {
         switch (message) {
             inline else => |item| try stream.write(item),
         }
+    }
+
+    /// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved for rpc-internal methods and extensions and MUST NOT be used for anything else.
+    pub fn is_reserved_method_name(name: []const u8) bool {
+        return std.mem.startsWith(u8, name, "rpc.");
     }
 
     const Fields = struct {
@@ -1112,10 +1112,24 @@ pub fn ResultType(comptime method: []const u8) type {
     @compileError("unknown method '" ++ method ++ "'");
 }
 
+test ResultType {
+    comptime {
+        std.debug.assert(ResultType("textDocument/hover") == ?lsp_types.Hover);
+        std.debug.assert(ResultType("textDocument/inlayHint") == ?[]const lsp_types.InlayHint);
+    }
+}
+
 pub fn ParamsType(comptime method: []const u8) type {
     if (getRequestMetadata(method)) |meta| return meta.Params orelse void;
     if (getNotificationMetadata(method)) |meta| return meta.Params orelse void;
     @compileError("unknown method '" ++ method ++ "'");
+}
+
+test ParamsType {
+    comptime {
+        std.debug.assert(ParamsType("textDocument/hover") == lsp_types.HoverParams);
+        std.debug.assert(ParamsType("textDocument/inlayHint") == lsp_types.InlayHintParams);
+    }
 }
 
 pub fn getRequestMetadata(comptime method: []const u8) ?RequestMetadata {
@@ -1157,9 +1171,31 @@ pub fn isRequestMethod(method: []const u8) bool {
     return request_method_set.has(method);
 }
 
+test isRequestMethod {
+    try std.testing.expect(!isRequestMethod("initialized"));
+    try std.testing.expect(!isRequestMethod("textDocument/didOpen"));
+
+    try std.testing.expect(isRequestMethod("initialize"));
+    try std.testing.expect(isRequestMethod("textDocument/completion"));
+
+    try std.testing.expect(!isRequestMethod("foo"));
+    try std.testing.expect(!isRequestMethod(""));
+}
+
 /// Return whether there is a notification with the given method name.
 pub fn isNotificationMethod(method: []const u8) bool {
     return notification_method_set.has(method);
+}
+
+test isNotificationMethod {
+    try std.testing.expect(isNotificationMethod("initialized"));
+    try std.testing.expect(isNotificationMethod("textDocument/didOpen"));
+
+    try std.testing.expect(!isNotificationMethod("initialize"));
+    try std.testing.expect(!isNotificationMethod("textDocument/completion"));
+
+    try std.testing.expect(!isNotificationMethod("foo"));
+    try std.testing.expect(!isNotificationMethod(""));
 }
 
 /// Indicates in which direction a message is sent in the protocol.
@@ -1169,26 +1205,45 @@ pub const MessageDirection = enum {
     both,
 };
 
+test MessageDirection {
+    try std.testing.expectEqual(MessageDirection.server_to_client, getRequestMetadata("workspace/configuration").?.direction);
+    try std.testing.expectEqual(MessageDirection.client_to_server, getNotificationMetadata("textDocument/didOpen").?.direction);
+    try std.testing.expectEqual(MessageDirection.both, getNotificationMetadata("$/cancelRequest").?.direction);
+}
+
 pub const RegistrationMetadata = struct {
+    /// A dynamic registration method if it different from the request's method.
     method: ?[]const u8,
+    /// registration options if the request supports dynamic registration.
     Options: ?type,
 };
 
+/// Represents a LSP notification
 pub const NotificationMetadata = struct {
+    /// The notification's method name.
     method: []const u8,
     documentation: ?[]const u8,
+    /// The direction in which this notification is sent in the protocol.
     direction: MessageDirection,
+    /// The parameter type if any.
     Params: ?type,
     registration: RegistrationMetadata,
 };
 
+/// Represents a LSP request
 pub const RequestMetadata = struct {
+    /// The request's method name.
     method: []const u8,
     documentation: ?[]const u8,
+    /// The direction in which this request is sent in the protocol.
     direction: MessageDirection,
+    /// The parameter type if any.
     Params: ?type,
+    /// The result type.
     Result: type,
+    /// Partial result type if the request supports partial result reporting.
     PartialResult: ?type,
+    /// An optional error data type.
     ErrorData: ?type,
     registration: RegistrationMetadata,
 };
@@ -1304,6 +1359,8 @@ pub fn EnumStringifyAsInt(comptime T: type) type {
 
 pub const notification_metadata: [@field(@This(), "notification_metadata_generated").len]NotificationMetadata = @field(@This(), "notification_metadata_generated");
 pub const request_metadata: [@field(@This(), "request_metadata_generated").len]RequestMetadata = @field(@This(), "request_metadata_generated");
+
+const lsp_types = @This();
 
 comptime {
     @setEvalBranchQuota(10_000);
