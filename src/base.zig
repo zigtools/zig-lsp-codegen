@@ -211,7 +211,14 @@ pub const JsonRPCMessage = union(enum) {
                 },
                 .result => {
                     if (fields.@"error" != null) {
-                        return error.UnexpectedToken;
+                        // Allows { "error": {...}, "result": null }
+                        switch (try source.peekNextTokenType()) {
+                            .null => {
+                                std.debug.assert(try source.next() == .null);
+                                continue;
+                            },
+                            else => return error.UnexpectedToken,
+                        }
                     }
                 },
                 .@"error" => {
@@ -496,6 +503,12 @@ pub const JsonRPCMessage = union(enum) {
             .id = .{ .string = "id" },
             .result = null,
             .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null },
+        } }, .{});
+        try testParse(
+            \\{"id": "id", "jsonrpc": "2.0", "error": {"code": 42, "message": "bar"}, "result": null}
+        , .{ .response = .{
+            .id = .{ .string = "id" },
+            .content = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null } },
         } }, .{});
     }
 
