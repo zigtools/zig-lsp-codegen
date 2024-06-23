@@ -22,6 +22,31 @@ pub const JsonRPCMessage = union(enum) {
         number: i64,
         string: []const u8,
 
+        pub fn eql(a: ID, b: ID) bool {
+            if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+            switch (a) {
+                .number => return a.number == b.number,
+                .string => return std.mem.eql(u8, a.string, b.string),
+            }
+        }
+
+        test eql {
+            const id_number_3: ID = .{ .number = 3 };
+            const id_number_7: ID = .{ .number = 7 };
+            const id_string_foo: ID = .{ .string = "foo" };
+            const id_string_bar: ID = .{ .string = "bar" };
+            const id_string_3: ID = .{ .string = "3" };
+
+            try std.testing.expect(id_number_3.eql(id_number_3));
+            try std.testing.expect(!id_number_3.eql(id_number_7));
+
+            try std.testing.expect(id_string_foo.eql(id_string_foo));
+            try std.testing.expect(!id_string_foo.eql(id_string_bar));
+
+            try std.testing.expect(!id_number_3.eql(id_string_foo));
+            try std.testing.expect(!id_number_3.eql(id_string_3));
+        }
+
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!ID {
             switch (try source.peekNextTokenType()) {
                 .number => return .{ .number = try std.json.innerParse(i64, allocator, source, options) },
