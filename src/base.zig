@@ -101,11 +101,12 @@ pub const JsonRPCMessage = union(enum) {
         /// It must be the same as the value of the `id` member in the `Request` object.
         /// If there was an error in detecting the id in the `Request` object (e.g. `Error.Code.parse_error`/`Error.Code.invalid_request`), it must be `null`.
         id: ?ID,
-        /// The result of a request. This member is REQUIRED on success.
-        /// This member MUST NOT exist if there was an error invoking the m
-        result: ?std.json.Value,
-        /// The error object in case a request fails.
-        @"error": ?Error,
+        result_or_error: union(enum) {
+            /// The result of a request.
+            result: ?std.json.Value,
+            /// The error object in case a request fails.
+            @"error": Error,
+        },
 
         pub const Error = struct {
             /// A number indicating the error type that occurred.
@@ -154,12 +155,12 @@ pub const JsonRPCMessage = union(enum) {
                 try stream.write(null);
             }
 
-            try stream.objectField(if (response.result != null) "result" else "error");
-            if (response.result) |result_val| {
-                try stream.write(result_val);
-            } else if (response.@"error") |error_val| {
-                try stream.write(error_val);
-            } else unreachable;
+            switch (response.result_or_error) {
+                inline else => |value, tag| {
+                    try stream.objectField(@tagName(tag));
+                    try stream.write(value);
+                },
+            }
 
             try stream.endObject();
         }
@@ -379,9 +380,8 @@ pub const JsonRPCMessage = union(enum) {
 
                 return .{
                     .response = .{
-                        .result = self.result,
-                        .@"error" = self.@"error",
                         .id = self.id,
+                        .result_or_error = if (self.@"error") |err| .{ .@"error" = err } else .{ .result = self.result },
                     },
                 };
             }
@@ -478,8 +478,7 @@ pub const JsonRPCMessage = union(enum) {
             \\{"jsonrpc": "2.0", "id": 1, "result": null}
         , .{ .response = .{
             .id = .{ .number = 1 },
-            .result = .null,
-            .@"error" = null,
+            .result_or_error = .{ .result = .null },
         } }, .{});
 
         try testParseExpectedError(
@@ -494,21 +493,19 @@ pub const JsonRPCMessage = union(enum) {
             \\{"id": "id", "jsonrpc": "2.0", "result": null, "error": {"code": 3, "message": "foo", "data": null}}
         , .{ .response = .{
             .id = .{ .string = "id" },
-            .result = .null,
-            .@"error" = .{ .code = @enumFromInt(3), .message = "foo", .data = .null },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(3), .message = "foo", .data = .null } },
         } }, .{});
         try testParse(
             \\{"id": "id", "jsonrpc": "2.0", "error": {"code": 42, "message": "bar"}}
         , .{ .response = .{
             .id = .{ .string = "id" },
-            .result = null,
-            .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null } },
         } }, .{});
         try testParse(
             \\{"id": "id", "jsonrpc": "2.0", "error": {"code": 42, "message": "bar"}, "result": null}
         , .{ .response = .{
             .id = .{ .string = "id" },
-            .content = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null } },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null } },
         } }, .{});
     }
 
@@ -690,12 +687,19 @@ pub const JsonRPCMessage = union(enum) {
             },
             .response => {
                 try std.testing.expectEqualDeep(a.response.id, b.response.id);
-                try std.testing.expectEqualDeep(a.response.@"error", b.response.@"error");
+                try std.testing.expectEqual(std.meta.activeTag(a.response.result_or_error), std.meta.activeTag(b.response.result_or_error));
 
-                // this only a shallow equality check
-                try std.testing.expectEqual(a.response.result == null, b.response.result == null);
-                if (a.response.result != null) {
-                    try std.testing.expectEqual(std.meta.activeTag(a.response.result.?), std.meta.activeTag(b.response.result.?));
+                switch (a.response.result_or_error) {
+                    .result => {
+                        // this only a shallow equality check
+                        try std.testing.expectEqual(a.response.result_or_error.result == null, b.response.result_or_error.result == null);
+                        if (a.response.result_or_error.result != null) {
+                            try std.testing.expectEqual(std.meta.activeTag(a.response.result_or_error.result.?), std.meta.activeTag(b.response.result_or_error.result.?));
+                        }
+                    },
+                    .@"error" => {
+                        try std.testing.expectEqualDeep(a.response.result_or_error.@"error", b.response.result_or_error.@"error");
+                    },
                 }
             },
         }
