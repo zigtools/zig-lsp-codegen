@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         zig-version: [master]
         os: [ubuntu-latest, macos-latest]
