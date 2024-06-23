@@ -706,16 +706,20 @@ pub const JsonRPCMessage = union(enum) {
     }
 };
 
+pub const MethodWithParams = struct {
+    method: []const u8,
+    /// The `std.json.Value` can only be `.null`, `.array` or `.object`.
+    ///
+    /// `params == null` means that the was no `"params"` field. `params == .null` means that the `"params"` field was set to `null`.
+    params: ?std.json.Value,
+};
+
 pub fn LSPMessage(
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a request message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
-    /// There may be an optional field named `other` which can have one of the following field types:
-    ///   - `[]const u8`
-    ///   - `struct{ []const u8 }`
-    ///   - `struct{ []const u8, ?std.json.Value }`
-    ///   - `struct{ method: []const u8 }`
-    ///   - `struct{ method: []const u8, params: ?std.json.Value }`
+    ///
+    /// There must also be a field named `other` which must have the type `MethodWithParams`.
     /// It will be set with the method name and params if request does not match any of the explicitly specified params.
     ///
     /// Example:
@@ -723,25 +727,15 @@ pub fn LSPMessage(
     /// union(enum) {
     ///     @"textDocument/implementation": ImplementationParams,
     ///     @"textDocument/completion": CompletionParams,
-    ///     /// The request is not one of the above.
-    ///     other: struct {
-    ///         /// The method to be invoked.
-    ///         []const u8,
-    ///         /// The requests's params. The `std.json.Value` can only be `.null`, `.array` or `.object`.
-    ///         ?std.json.Value,
-    ///     },
+    ///     other: MethodWithParams,
     /// }
     /// ```
     comptime RequestParams: type,
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a notification message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
-    /// There may be an optional field named `other` which can have one of the following field types:
-    ///   - `[]const u8`
-    ///   - `struct{ []const u8 }`
-    ///   - `struct{ []const u8, ?std.json.Value }`
-    ///   - `struct{ method: []const u8 }`
-    ///   - `struct{ method: []const u8, params: ?std.json.Value }`
+    ///
+    /// There must also be a field named `other` which must have the type `MethodWithParams`.
     /// It will be set with the method name and params if notification does not match any of the explicitly specified params.
     ///
     /// Example:
@@ -749,17 +743,13 @@ pub fn LSPMessage(
     /// union(enum) {
     ///     @"textDocument/didOpen": DidOpenTextDocumentParams,
     ///     @"textDocument/didChange": DidChangeTextDocumentParams,
-    ///     other: struct {
-    ///         /// The method to be invoked.
-    ///         []const u8,
-    ///         /// The notification's params. The `std.json.Value` can only be `.null`, `.array` or `.object`.
-    ///         ?std.json.Value,
-    ///     },
+    ///     other: MethodWithParams,
     /// }
     /// ```
     comptime NotificationParams: type,
 ) type {
     // TODO validate RequestParams and NotificationParams
+    // This level of comptime should be illegal...
     return union(enum) {
         request: Request,
         notification: Notification,
@@ -773,6 +763,9 @@ pub fn LSPMessage(
             params: Params,
 
             pub const Params = RequestParams;
+
+            pub const jsonParse = @compileError("Parsing a Request directly is not implemented! try to parse the LSPMessage instead.");
+            pub const jsonParseFromValue = @compileError("Parsing a Request directly is not implemented! try to parse the LSPMessage instead.");
 
             pub fn jsonStringify(request: Notification, stream: anytype) @TypeOf(stream.*).Error!void {
                 try stream.beginObject();
@@ -795,6 +788,9 @@ pub fn LSPMessage(
 
             pub const Params = NotificationParams;
 
+            pub const jsonParse = @compileError("Parsing a Notification directly is not implemented! try to parse the LSPMessage instead.");
+            pub const jsonParseFromValue = @compileError("Parsing a Notification directly is not implemented! try to parse the LSPMessage instead.");
+
             pub fn jsonStringify(notification: Notification, stream: anytype) @TypeOf(stream.*).Error!void {
                 try stream.beginObject();
 
@@ -807,7 +803,7 @@ pub fn LSPMessage(
             }
         };
 
-        pub fn fromMessage(message: JsonRPCMessage, allocator: std.mem.Allocator, options: std.json.ParseOptions) std.json.ParseFromValueError!Message {
+        pub fn fromJsonRPCMessage(message: JsonRPCMessage, allocator: std.mem.Allocator, options: std.json.ParseOptions) std.json.ParseFromValueError!Message {
             switch (message) {
                 inline .request, .notification => |item, tag| {
                     const Params = switch (tag) {
@@ -819,10 +815,8 @@ pub fn LSPMessage(
                     var params: Params = undefined;
                     if (methodToParamsParserMap(Params, std.json.Value).get(item.method)) |parse| {
                         params = try parse(item.params orelse .null, allocator, options);
-                    } else if (@hasField(Params, "other")) {
-                        params = .{ .other = .{ item.method, item.params } }; // TODO customize
                     } else {
-                        return error.UnexpectedToken;
+                        params = .{ .other = .{ .method = item.method, .params = item.params } };
                     }
 
                     switch (tag) {
@@ -835,15 +829,26 @@ pub fn LSPMessage(
             }
         }
 
-        pub fn jsonParse(
-            allocator: std.mem.Allocator,
-            source: anytype,
-            options: std.json.ParseOptions,
-        ) std.json.ParseError(@TypeOf(source.*))!Message {
-            // TODO this implementation could be made more efficient
-            const message = try std.json.innerParse(JsonRPCMessage, allocator, source, options);
-            return try fromMessage(message, allocator, options);
-        }
+        pub const jsonParse = @compileError(
+            \\
+            \\Implementing an efficient streaming parser for a LSP message is almost impossible!
+            \\Please read the entire json message into a buffer and then call `jsonParseFromSlice` like this:
+            \\
+            \\const json_message =
+            \\    \\{
+            \\    \\    "jsonrpc": "2.0",
+            \\    \\    "id": 1,
+            \\    \\    "method": "textDocument/completion",
+            \\    \\    "params": {
+            \\    \\        ...
+            \\    \\    }
+            \\    \\}
+            \\;
+            \\
+            \\const Message = LSPMessage(..., ...);
+            \\const lsp_message = try Message.jsonParseFromSlice(allocator, json_message, .{});
+            \\
+        );
 
         pub fn jsonParseFromValue(
             allocator: std.mem.Allocator,
@@ -851,7 +856,7 @@ pub fn LSPMessage(
             options: std.json.ParseOptions,
         ) std.json.ParseFromValueError!Message {
             const message = try std.json.innerParseFromValue(JsonRPCMessage, allocator, source, options);
-            return try fromMessage(message, allocator, options);
+            return try fromJsonRPCMessage(message, allocator, options);
         }
 
         pub fn jsonStringify(message: Message, stream: anytype) @TypeOf(stream.*).Error!void {
@@ -860,8 +865,7 @@ pub fn LSPMessage(
             }
         }
 
-        /// Identical to `std.json.parseFromSlice(LSPMessage, ...)` but implemented more efficiently.
-        pub fn jsonParseFromSlice(
+        pub fn parseFromSlice(
             allocator: std.mem.Allocator,
             s: []const u8,
             options: std.json.ParseOptions,
@@ -874,26 +878,35 @@ pub fn LSPMessage(
             parsed.arena.* = std.heap.ArenaAllocator.init(allocator);
             errdefer parsed.arena.deinit();
 
-            parsed.value = try jsonParseFromSlice(parsed.arena.allocator(), s, options);
+            parsed.value = try parseFromSliceLeaky(parsed.arena.allocator(), s, options);
 
             return parsed;
         }
 
-        /// Identical to `std.json.parseFromSliceLeaky(LSPMessage, ...)` but implemented more efficiently.
         pub fn parseFromSliceLeaky(
             allocator: std.mem.Allocator,
             s: []const u8,
-            options: std.json.ParseOptions,
+            param_options: std.json.ParseOptions,
         ) std.json.ParseError(std.json.Scanner)!Message {
-            std.debug.assert(options.duplicate_field_behavior == .@"error"); // any other behavior is unsupported
+            std.debug.assert(param_options.duplicate_field_behavior == .@"error"); // any other behavior is unsupported
 
             var source = std.json.Scanner.initCompleteInput(allocator, s);
             defer source.deinit();
+
+            var options = param_options;
+            if (options.max_value_len == null) {
+                options.max_value_len = source.input.len;
+            }
+            if (options.allocate == null) {
+                options.allocate = .alloc_if_needed;
+            }
 
             if (try source.next() != .object_begin) return error.UnexpectedToken;
 
             var jsonrpc: ?[]const u8 = null;
             var id: ?JsonRPCMessage.ID = null;
+            var saw_result_field: bool = false;
+            var saw_error_field: bool = false;
             var state: State = .unknown;
 
             while (true) {
@@ -924,121 +937,157 @@ pub fn LSPMessage(
                 switch (field_name) {
                     .jsonrpc => {
                         if (jsonrpc != null) return error.DuplicateField;
-                        jsonrpc = try std.json.innerParseFromValue([]const u8, allocator, source, options);
+                        jsonrpc = try std.json.innerParse([]const u8, allocator, &source, options);
                         continue;
                     },
                     .id => {
                         if (id != null) return error.DuplicateField;
-                        id = try std.json.innerParseFromValue(?JsonRPCMessage.ID, allocator, source, options);
+                        id = try std.json.innerParse(?JsonRPCMessage.ID, allocator, &source, options);
                         continue;
                     },
                     else => {},
                 }
 
                 if (state == .method and field_name == .params) {
-                    state = try parseParamsWithMethodFromTokenStream(allocator, source, state.method, options);
+                    state = try parseParamsFromTokenStreamWithKnownMethod(allocator, &source, state.method, options);
                     continue;
                 } else if (state == .params and field_name == .method) {
-                    const method = try std.json.innerParseFromValue([]const u8, allocator, source, options);
-                    state = try parseParamsWithMethodFromTokenStream(allocator, state.params, method, options);
+                    const method = try std.json.innerParse([]const u8, allocator, &source, options);
+                    var params_source = state.params;
+                    state = try parseParamsFromTokenStreamWithKnownMethod(allocator, &params_source, method, options);
                     continue;
                 }
 
                 switch (state) {
                     .request, .notification => return error.DuplicateField,
+                    .uninteresting_request_or_notification => switch (field_name) {
+                        .jsonrpc, .id => unreachable, // checked above
+                        .method, .params => return error.DuplicateField,
+                        .result, .@"error" => return error.UnexpectedToken,
+                    },
                     .method => switch (field_name) {
-                        .jsonrpc, .id => unreachable,
+                        .jsonrpc, .id => unreachable, // checked above
                         .method => return error.DuplicateField,
                         .params => unreachable, // checked above
                         .result, .@"error" => return error.UnexpectedToken,
                     },
                     .params => switch (field_name) {
-                        .jsonrpc, .id => unreachable,
+                        .jsonrpc, .id => unreachable, // checked above
                         .method => unreachable, // checked above
                         .params => return error.DuplicateField,
                         .result, .@"error" => return error.UnexpectedToken,
                     },
                     .response_result => |result| switch (field_name) {
-                        .jsonrpc, .id => unreachable,
+                        .jsonrpc, .id => unreachable, // checked above
                         .method, .params => return error.UnexpectedToken,
                         .result => return error.DuplicateField,
                         .@"error" => {
-                            if (result != .null) return error.UnexpectedToken;
+                            if (saw_error_field) return error.DuplicateField;
+                            saw_error_field = true;
 
-                            state = .{
-                                .response = .{
-                                    .@"error" = try std.json.innerParse(JsonRPCMessage.Response.Error, allocator, source, options),
-                                },
-                            };
+                            // Allows { "result": null, "error": {...} }
+                            if (result != .null) return error.UnexpectedToken;
+                            state = .{ .response_error = try std.json.innerParse(JsonRPCMessage.Response.Error, allocator, &source, options) };
                             continue;
                         },
                     },
                     .response_error => switch (field_name) {
-                        .jsonrpc, .id => unreachable,
+                        .jsonrpc, .id => unreachable, // checked above
                         .method, .params => return error.UnexpectedToken,
-                        .result => return error.UnexpectedToken,
+                        .result => {
+                            if (saw_result_field) return error.DuplicateField;
+                            saw_result_field = true;
+
+                            // Allows { "error": {...}, "result": null }
+                            switch (try source.peekNextTokenType()) {
+                                .null => {
+                                    std.debug.assert(try source.next() == .null);
+                                    continue;
+                                },
+                                else => return error.UnexpectedToken,
+                            }
+                        },
                         .@"error" => return error.DuplicateField,
                     },
-                    .unknown => switch (field_name) {
-                        .jsonrpc, .id => unreachable,
-                        .method => {
-                            state = .{ .request_or_notification = .{
-                                .method = try std.json.innerParse([]const u8, allocator, source, options),
-                            } };
-                            continue;
-                        },
-                        .params => {
-                            state = .{ .params = source };
-                            try source.skipValue();
-                            continue;
-                        },
-                        .result => {
-                            state = .{ .response = .{
-                                .result = try std.json.innerParse(std.json.Value, allocator, source, options),
-                            } };
-                            continue;
-                        },
-                        .@"error" => {
-                            state = .{ .response = .{
-                                .@"error" = try std.json.innerParse(JsonRPCMessage.Response.Error, allocator, source, options),
-                            } };
-                            continue;
-                        },
+                    .unknown => {
+                        state = switch (field_name) {
+                            .jsonrpc, .id => unreachable, // checked above
+                            .method => .{ .method = try std.json.innerParse([]const u8, allocator, &source, options) },
+                            .params => {
+                                // Save the `std.json.Scanner` for later and skip the params.
+                                state = .{ .params = source };
+                                try source.skipValue();
+                                continue;
+                            },
+                            .result => .{ .response_result = try std.json.innerParse(std.json.Value, allocator, &source, options) },
+                            .@"error" => .{ .response_error = try std.json.innerParse(JsonRPCMessage.Response.Error, allocator, &source, options) },
+                        };
+                        continue;
                     },
                 }
                 @compileError("Where is the fallthrough Lebowski?");
             }
 
+            if (state == .method) {
+                // The "params" field is missing. We will artifically insert `"params": null` to see `null` is a valid params field.
+                var null_scanner = std.json.Scanner.initCompleteInput(allocator, "null");
+                state = parseParamsFromTokenStreamWithKnownMethod(allocator, &null_scanner, state.method, options) catch return error.MissingField;
+            }
+
             switch (state) {
-                .method,
-                .params,
-                .response_result,
-                .response_error,
-                .unknown,
-                => return error.MissingField,
-                .request,
-                .notification,
-                => {}, // TODO
+                .unknown => return error.MissingField, // Where, fields?
+                .params => return error.MissingField, // missing "method" field
+                .method => unreachable, // checked above
+                .response_result => |result| return .{
+                    .response = .{
+                        .id = id orelse return error.MissingField, // the "result" field indicates a response but there was not "id" field
+                        .result_or_error = .{ .result = result },
+                    },
+                },
+                .response_error => |err| return .{
+                    .response = .{
+                        .id = id orelse return error.MissingField, // the "error" field indicates is a response but there was not "id" field
+                        .result_or_error = .{ .@"error" = err },
+                    },
+                },
+                .request => |params| return .{
+                    .request = .{
+                        .id = id orelse return error.MissingField, // "method" is a request but there was not "id" field
+                        .params = params,
+                    },
+                },
+                .notification => |params| {
+                    if (id != null) return error.UnknownField; // "method" is a notification but there was a "id" field
+                    return .{ .notification = .{ .params = params } };
+                },
+                .uninteresting_request_or_notification => |method_with_params| {
+                    // The method could be from a future protocol version so we don't return an error here.
+                    if (id) |request_id| {
+                        return .{ .request = .{ .id = request_id, .params = .{ .other = method_with_params } } };
+                    } else {
+                        return .{ .notification = .{ .params = .{ .other = method_with_params } } };
+                    }
+                },
             }
         }
 
-        fn parseParamsWithMethodFromTokenStream(
+        fn parseParamsFromTokenStreamWithKnownMethod(
             allocator: std.mem.Allocator,
             /// Must be either `*std.json.Scanner` or `*std.json.Reader`.
-            source: anytype,
+            params_source: anytype,
             method: []const u8,
             options: std.json.ParseOptions,
         ) std.json.ParseError(std.json.Scanner)!State {
             std.debug.assert(options.duplicate_field_behavior == .@"error"); // any other behavior is unsupported
 
-            if (methodToParamsParserMap(RequestParams, @TypeOf(source)).get(method)) |parse| {
-                return .{ .request = try parse(source, allocator, options) };
-            } else if (methodToParamsParserMap(NotificationParams, @TypeOf(source)).get(method)) |parse| {
-                return .{ .notification = try parse(source, allocator, options) };
+            if (methodToParamsParserMap(RequestParams, @TypeOf(params_source)).get(method)) |parse| {
+                return .{ .request = try parse(params_source, allocator, options) };
+            } else if (methodToParamsParserMap(NotificationParams, @TypeOf(params_source)).get(method)) |parse| {
+                return .{ .notification = try parse(params_source, allocator, options) };
             } else {
-                return .{
-                    .unknown_request_or_notification = @compileError("TODO"),
-                };
+                // TODO make it configurable if the params should be parsed
+                const params = try std.json.innerParse(?std.json.Value, allocator, params_source, options);
+                return .{ .uninteresting_request_or_notification = .{ .method = method, .params = params } };
             }
         }
 
@@ -1048,8 +1097,9 @@ pub fn LSPMessage(
             /// Must be either `*std.json.Scanner`, `*std.json.Reader` or `std.json.Value`.
             comptime Source: type,
         ) type {
-            std.debug.assert(Params == RequestParams or Params == NotificationParams);
-            return *const fn (params_source: Source, allocator: std.mem.Allocator, options: std.json.ParseOptions) (if (Source == std.json.Value) std.json.ParseFromValueError else std.json.ParseError(Source))!Params;
+            comptime std.debug.assert(Params == RequestParams or Params == NotificationParams);
+            const Error = if (Source == std.json.Value) std.json.ParseFromValueError else std.json.ParseError(std.meta.Child(Source));
+            return *const fn (params_source: Source, allocator: std.mem.Allocator, options: std.json.ParseOptions) Error!Params;
         }
 
         inline fn methodToParamsParserMap(
@@ -1060,9 +1110,8 @@ pub fn LSPMessage(
         ) StaticStringMap(ParamsParserFunc(Params, Source)) {
             comptime {
                 const fields = std.meta.fields(Params);
-                const has_other_field = @hasField(Params, "other");
 
-                var kvs_list: [fields.len - @intFromBool(has_other_field)]struct { []const u8, ParamsParserFunc(Params, Source) } = undefined;
+                var kvs_list: [fields.len - 1]struct { []const u8, ParamsParserFunc(Params, Source) } = undefined;
 
                 var i: usize = 0;
                 for (fields) |field| {
@@ -1090,70 +1139,100 @@ pub fn LSPMessage(
             std.debug.assert(@TypeOf(self) == RequestParams or @TypeOf(self) == NotificationParams);
 
             switch (self) {
-                inline else => |field_value, field_name| {
-                    if (comptime std.mem.eql(u8, field_name, "other")) {
-                        // TODO validation, customizability
-                        const method_name, const params = field_value;
-                        try stream.objectField("method");
-                        try stream.objectField(method_name);
+                .other => |method_with_params| {
+                    try stream.objectField("method");
+                    try stream.objectField(method_with_params.method);
 
-                        if (params) |params_val| {
-                            try stream.objectField("params");
-                            try stream.write(params_val);
-                        } else if (stream.options.emit_null_optional_fields) {
-                            try stream.objectField("params");
-                            try stream.write(null);
-                        }
-                    } else {
-                        try stream.objectField("method");
-                        try stream.objectField(field_name);
-
+                    if (method_with_params.params) |params_val| {
                         try stream.objectField("params");
-                        try stream.write(field_value);
+                        try stream.write(params_val);
+                    } else if (stream.options.emit_null_optional_fields) {
+                        try stream.objectField("params");
+                        try stream.write(null);
                     }
+                },
+                inline else => |params, method| {
+                    try stream.objectField("method");
+                    try stream.objectField(method);
+
+                    try stream.objectField("params");
+                    try stream.write(params);
                 },
             }
         }
 
         const State = union(enum) {
+            /// The `"method"` and `"params"` field has been encountered. The method is part of `RequestParams`.
             request: RequestParams,
+            /// The `"method"` and `"params"` field has been encountered. The method is part of `NotificationParams`.
             notification: NotificationParams,
-            unknown_request_or_notification: @compileError("TODO"),
+            /// The `"method"` field has been encountered and `"params"` field has been encountered.
+            /// The method is valid but not part of `RequestParams` nor `NotificationParams`.
+            uninteresting_request_or_notification: MethodWithParams,
+            /// Only the `"method"` field has been encountered.
             method: []const u8,
-            params: std.json.Scanner,
+            /// Only the `"params"` field has been encountered.
+            ///
+            /// The field will not be parsed until the `"method"` field has been encountered.
+            /// Once the `"method"` has been encountered, the `std.json.Scanner` is used to jump back to where the `"params"` field was located.
+            params: std.json.Scanner, // TODO optimize @sizeof()
+            /// Only the `"result"` field has been encountered.
             response_result: std.json.Value,
+            /// Only the `"error"` field has been encountered.
             response_error: JsonRPCMessage.Response.Error,
+            /// initial state
             unknown,
         };
     };
 }
 
 test LSPMessage {
-    const ImplementationParamss = @field(@This(), "ImplementationParams");
-    const CompletionParamss = @field(@This(), "CompletionParams");
     const RequestMethods = union(enum) {
-        @"textDocument/implementation": ImplementationParamss,
-        @"textDocument/completion": CompletionParamss,
-        other: struct { []const u8, ?std.json.Value },
+        @"textDocument/implementation": lsp_types.ImplementationParams,
+        @"textDocument/completion": lsp_types.CompletionParams,
+        /// The request is not one of the above.
+        other: MethodWithParams,
     };
     const NotificationMethods = union(enum) {
-        // @"textDocument/didOpen",
-        // @"textDocument/didChange",
-        other: struct { []const u8, ?std.json.Value },
+        @"textDocument/didOpen": lsp_types.DidOpenTextDocumentParams,
+        @"textDocument/didChange": lsp_types.DidChangeTextDocumentParams,
+        /// The notification is not one of the above.
+        other: MethodWithParams,
     };
     const MyLSPMessage = LSPMessage(RequestMethods, NotificationMethods);
 
-    const parsed_value = try std.json.parseFromSlice(
-        std.json.Value,
-        std.testing.allocator,
-        \\{"jsonrpc": "2.0", "id": 1, "method": "textDocument/completion", "params": {"textDocument": {"uri": "foo"}, "position": {"line": 1, "character": 2}}}
-    ,
-        .{},
-    );
-    defer parsed_value.deinit();
+    const json_message =
+        \\{
+        \\    "jsonrpc": "2.0",
+        \\    "id": 1,
+        \\    "method": "textDocument/completion",
+        \\    "params": {
+        \\        "textDocument": {"uri": "foo"}, 
+        \\        "position": {"line": 1, "character": 2}
+        \\    }
+        \\}
+    ;
 
-    const message = try std.json.parseFromValue(MyLSPMessage, std.testing.allocator, parsed_value.value, .{});
-    defer message.deinit();
+    {
+        const message = try MyLSPMessage.parseFromSlice(std.testing.allocator, json_message, .{});
+        defer message.deinit();
+
+        try std.testing.expect(message.value == .request);
+        try std.testing.expectEqual(1, message.value.request.id.number);
+        try std.testing.expect(message.value.request.params == .@"textDocument/completion");
+    }
+
+    {
+        const parsed_value = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_message, .{});
+        defer parsed_value.deinit();
+
+        const message = try std.json.parseFromValue(MyLSPMessage, std.testing.allocator, parsed_value.value, .{});
+        defer message.deinit();
+
+        try std.testing.expect(message.value == .request);
+        try std.testing.expectEqual(1, message.value.request.id.number);
+        try std.testing.expect(message.value.request.params == .@"textDocument/completion");
+    }
 }
 
 pub fn ResultType(comptime method: []const u8) type {
