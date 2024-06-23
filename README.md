@@ -20,5 +20,6 @@ You can then import `lsp-codegen` in your `build.zig` with:
 ```zig
 const lsp_codegen = b.dependency("lsp-codegen", .{});
 const exe = b.addExecutable(...);
+exe.root_module.addImport("lsp-types", lsp_codegen.module("lsp-types"));
 exe.root_module.addImport("lsp", lsp_codegen.module("lsp"));
 ```

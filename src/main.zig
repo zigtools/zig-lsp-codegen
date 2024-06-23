@@ -478,7 +478,7 @@ fn writeTypeAlias(writer: anytype, meta_model: MetaModel, type_alias: MetaModel.
 }
 
 fn writeMetaModel(writer: anytype, meta_model: MetaModel) !void {
-    try writer.writeAll(@embedFile("base.zig") ++ "\n");
+    try writer.writeAll(@embedFile("lsp_types_base.zig") ++ "\n");
 
     try writer.writeAll("// Type Aliases\n\n");
     for (meta_model.typeAliases) |type_alias| {

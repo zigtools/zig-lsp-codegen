@@ -17,22 +17,29 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addAnonymousImport("meta-model", .{ .root_source_file = b.path("metaModel.json") });
 
     const run_codegen = b.addRunArtifact(exe);
-    const lsp_output_file = run_codegen.addOutputFileArg("lsp.zig");
+    const lsp_types_output_file = run_codegen.addOutputFileArg("lsp_types.zig");
 
-    const install_lsp_artifact = b.addInstallFile(lsp_output_file, "artifacts/lsp.zig");
-    b.getInstallStep().dependOn(&install_lsp_artifact.step);
+    b.getInstallStep().dependOn(&b.addInstallFile(lsp_types_output_file, "artifacts/lsp_types.zig").step);
+    b.getInstallStep().dependOn(&b.addInstallFile(b.path("src/lsp.zig"), "artifacts/lsp.zig").step);
 
-    _ = b.addModule("lsp", .{
-        .root_source_file = lsp_output_file,
+    const lsp_types_module = b.addModule("lsp-types", .{
+        .root_source_file = lsp_types_output_file,
         .target = target,
         .optimize = optimize,
     });
+
+    const lsp_module = b.addModule("lsp", .{
+        .root_source_file = b.path("src/lsp.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lsp_module.addImport("lsp-types", lsp_types_module);
 
     // -------------------------------- Autodoc --------------------------------
 
     const autodoc_exe = b.addObject(.{
         .name = "lsp",
-        .root_source_file = lsp_output_file,
+        .root_source_file = b.path("src/lsp.zig"),
         .target = target,
         .optimize = .Debug,
     });
@@ -49,11 +56,12 @@ pub fn build(b: *std.Build) void {
     // --------------------------------- Tests ---------------------------------
 
     const tests = b.addTest(.{
-        .root_source_file = lsp_output_file,
+        .root_source_file = b.path("src/lsp.zig"),
         .target = target,
         .optimize = optimize,
         .filters = test_filters,
     });
+    tests.root_module.addImport("lsp-types", lsp_types_module);
 
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);
