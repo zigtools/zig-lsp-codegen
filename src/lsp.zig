@@ -702,7 +702,7 @@ pub const MethodWithParams = struct {
     params: ?std.json.Value,
 };
 
-pub fn LSPMessage(
+pub fn Message(
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a request message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
@@ -743,7 +743,7 @@ pub fn LSPMessage(
         notification: Notification,
         response: JsonRPCMessage.Response,
 
-        const Message = @This();
+        const Msg = @This();
 
         pub const Request = struct {
             comptime jsonrpc: []const u8 = "2.0",
@@ -752,8 +752,8 @@ pub fn LSPMessage(
 
             pub const Params = RequestParams;
 
-            pub const jsonParse = @compileError("Parsing a Request directly is not implemented! try to parse the LSPMessage instead.");
-            pub const jsonParseFromValue = @compileError("Parsing a Request directly is not implemented! try to parse the LSPMessage instead.");
+            pub const jsonParse = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
+            pub const jsonParseFromValue = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
 
             pub fn jsonStringify(request: Notification, stream: anytype) @TypeOf(stream.*).Error!void {
                 try stream.beginObject();
@@ -776,8 +776,8 @@ pub fn LSPMessage(
 
             pub const Params = NotificationParams;
 
-            pub const jsonParse = @compileError("Parsing a Notification directly is not implemented! try to parse the LSPMessage instead.");
-            pub const jsonParseFromValue = @compileError("Parsing a Notification directly is not implemented! try to parse the LSPMessage instead.");
+            pub const jsonParse = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
+            pub const jsonParseFromValue = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
 
             pub fn jsonStringify(notification: Notification, stream: anytype) @TypeOf(stream.*).Error!void {
                 try stream.beginObject();
@@ -791,7 +791,7 @@ pub fn LSPMessage(
             }
         };
 
-        pub fn fromJsonRPCMessage(message: JsonRPCMessage, allocator: std.mem.Allocator, options: std.json.ParseOptions) std.json.ParseFromValueError!Message {
+        pub fn fromJsonRPCMessage(message: JsonRPCMessage, allocator: std.mem.Allocator, options: std.json.ParseOptions) std.json.ParseFromValueError!Msg {
             switch (message) {
                 inline .request, .notification => |item, tag| {
                     const Params = switch (tag) {
@@ -833,7 +833,7 @@ pub fn LSPMessage(
             \\    \\}
             \\;
             \\
-            \\const Message = LSPMessage(..., ...);
+            \\const Message = lsp.Message(..., ...);
             \\const lsp_message = try Message.jsonParseFromSlice(allocator, json_message, .{});
             \\
         );
@@ -842,12 +842,12 @@ pub fn LSPMessage(
             allocator: std.mem.Allocator,
             source: std.json.Value,
             options: std.json.ParseOptions,
-        ) std.json.ParseFromValueError!Message {
+        ) std.json.ParseFromValueError!Msg {
             const message = try std.json.innerParseFromValue(JsonRPCMessage, allocator, source, options);
             return try fromJsonRPCMessage(message, allocator, options);
         }
 
-        pub fn jsonStringify(message: Message, stream: anytype) @TypeOf(stream.*).Error!void {
+        pub fn jsonStringify(message: Msg, stream: anytype) @TypeOf(stream.*).Error!void {
             switch (message) {
                 inline else => |item| try stream.write(item),
             }
@@ -857,8 +857,8 @@ pub fn LSPMessage(
             allocator: std.mem.Allocator,
             s: []const u8,
             options: std.json.ParseOptions,
-        ) std.json.ParseError(std.json.Scanner)!std.json.Parsed(Message) {
-            var parsed: std.json.Parsed(Message) = .{
+        ) std.json.ParseError(std.json.Scanner)!std.json.Parsed(Msg) {
+            var parsed: std.json.Parsed(Msg) = .{
                 .arena = try allocator.create(std.heap.ArenaAllocator),
                 .value = undefined,
             };
@@ -875,7 +875,7 @@ pub fn LSPMessage(
             allocator: std.mem.Allocator,
             s: []const u8,
             param_options: std.json.ParseOptions,
-        ) std.json.ParseError(std.json.Scanner)!Message {
+        ) std.json.ParseError(std.json.Scanner)!Msg {
             std.debug.assert(param_options.duplicate_field_behavior == .@"error"); // any other behavior is unsupported
 
             var source = std.json.Scanner.initCompleteInput(allocator, s);
@@ -1174,7 +1174,7 @@ pub fn LSPMessage(
     };
 }
 
-test LSPMessage {
+test Message {
     const RequestMethods = union(enum) {
         @"textDocument/implementation": lsp_types.ImplementationParams,
         @"textDocument/completion": lsp_types.CompletionParams,
@@ -1187,7 +1187,7 @@ test LSPMessage {
         /// The notification is not one of the above.
         other: MethodWithParams,
     };
-    const MyLSPMessage = LSPMessage(RequestMethods, NotificationMethods);
+    const LSPMessage = Message(RequestMethods, NotificationMethods);
 
     const json_message =
         \\{
@@ -1202,7 +1202,7 @@ test LSPMessage {
     ;
 
     {
-        const message = try MyLSPMessage.parseFromSlice(std.testing.allocator, json_message, .{});
+        const message = try LSPMessage.parseFromSlice(std.testing.allocator, json_message, .{});
         defer message.deinit();
 
         try std.testing.expect(message.value == .request);
@@ -1214,7 +1214,7 @@ test LSPMessage {
         const parsed_value = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_message, .{});
         defer parsed_value.deinit();
 
-        const message = try std.json.parseFromValue(MyLSPMessage, std.testing.allocator, parsed_value.value, .{});
+        const message = try std.json.parseFromValue(LSPMessage, std.testing.allocator, parsed_value.value, .{});
         defer message.deinit();
 
         try std.testing.expect(message.value == .request);
