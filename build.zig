@@ -5,19 +5,22 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match filter") orelse &[0][]const u8{};
-    const meta_model_path = b.option([]const u8, "meta-model", "Specify path to the metaModel.json") orelse "metaModel.json";
+
+    // -------------------------------------------------------------------------
 
     const exe = b.addExecutable(.{
         .name = "zig-lsp-codegen",
         .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = b.graph.host,
     });
-    b.installArtifact(exe);
+    // The metaMode.json file should be removed once https://github.com/ziglang/zig/issues/17895 has been resolved.
+    exe.root_module.addAnonymousImport("meta-model", .{ .root_source_file = b.path("metaModel.json") });
 
     const run_codegen = b.addRunArtifact(exe);
-    run_codegen.addFileArg(.{ .cwd_relative = meta_model_path });
     const lsp_output_file = run_codegen.addOutputFileArg("lsp.zig");
+
+    const install_lsp_artifact = b.addInstallFile(lsp_output_file, "artifacts/lsp.zig");
+    b.getInstallStep().dependOn(&install_lsp_artifact.step);
 
     _ = b.addModule("lsp", .{
         .root_source_file = lsp_output_file,
@@ -25,8 +28,25 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const install_lsp_artifact = b.addInstallFile(lsp_output_file, "artifacts/lsp.zig");
-    b.getInstallStep().dependOn(&install_lsp_artifact.step);
+    // -------------------------------- Autodoc --------------------------------
+
+    const autodoc_exe = b.addObject(.{
+        .name = "lsp",
+        .root_source_file = lsp_output_file,
+        .target = target,
+        .optimize = .Debug,
+    });
+
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = autodoc_exe.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "doc/lsp-codegen",
+    });
+
+    const docs_step = b.step("docs", "Generate and install documentation");
+    docs_step.dependOn(&install_docs.step);
+
+    // --------------------------------- Tests ---------------------------------
 
     const tests = b.addTest(.{
         .root_source_file = lsp_output_file,

@@ -1,10 +1,24 @@
-# zig-lsp-codegen
+[![CI](https://github.com/zigtools/zig-lsp-codegen/actions/workflows/main.yml/badge.svg)](https://github.com/zigtools/zig-lsp-codegen/actions)
+[![Documentation](https://badgen.net/badge/icon/Docs?icon=wiki&label)](https://zigtools.github.io/zig-lsp-codegen)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Zig LSP codegen from the newly released, official metamodel! This actually good code replaces the much hackier [lsp-typegen](https://github.com/zigtools/lsp-typegen);
+# Zig LSP Codegen
 
-## Usage
+Generates `std.json` compatible Zig code based on the official [LSP MetaModel](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#metaModel)
 
-1. `git clone`
-2. Plop `metaModel.json` in this cloned repo. A copy can be found [here](https://github.com/microsoft/vscode-languageserver-node/blob/main/protocol/metaModel.json).
-3. `zig build`
-4. Tada! You should now have a `zig-out/artifacts/lsp.zig` file that can be used to your heart's content! Enjoy :)
+## Installation
+
+```bash
+# Initialize a `zig build` project if you haven't already
+zig init
+# Add the `lsp-codegen` package to your `build.zig.zon`
+zig fetch --save=lsp-codegen git+https://github.com/zigtools/zig-lsp-codegen.git#<git-commit-hash>
+```
+
+You can then import `lsp-codegen` in your `build.zig` with:
+
+```zig
+const lsp_codegen = b.dependency("lsp-codegen", .{});
+const exe = b.addExecutable(...);
+exe.root_module.addImport("lsp", lsp_codegen.module("lsp"));
+```

@@ -11,19 +11,10 @@ pub fn main() !void {
 
     _ = arg_it.skip(); // skip self exe
 
-    const model_file = try std.fs.cwd().openFile(
-        arg_it.next() orelse std.debug.panic("first argument must be the path to the metaModel.json", .{}),
-        .{},
-    );
-    defer model_file.close();
-
     const out_file_path = try gpa.dupe(u8, arg_it.next() orelse std.debug.panic("second argument must be the output path to the generated zig code", .{}));
     defer gpa.free(out_file_path);
 
-    var json_reader = std.json.reader(gpa, model_file.reader());
-    defer json_reader.deinit();
-
-    const parsed_meta_model = try std.json.parseFromTokenSource(MetaModel, gpa, &json_reader, .{});
+    const parsed_meta_model = try std.json.parseFromSlice(MetaModel, gpa, @embedFile("meta-model"), .{});
     defer parsed_meta_model.deinit();
 
     var buffer = std.ArrayListUnmanaged(u8){};
