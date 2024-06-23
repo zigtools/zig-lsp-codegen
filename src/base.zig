@@ -79,6 +79,8 @@ pub const JsonRPCMessage = union(enum) {
         /// The method to be invoked.
         method: []const u8,
         /// The requests's params. The `std.json.Value` can only be `.null`, `.array` or `.object`.
+        ///
+        /// `params == null` means that the was no `"params"` field. `params == .null` means that the `"params"` field was set to `null`.
         params: ?std.json.Value,
     };
 
@@ -87,12 +89,17 @@ pub const JsonRPCMessage = union(enum) {
         /// The method to be invoked.
         method: []const u8,
         /// The notification's params. The `std.json.Value` can only be `.null`, `.array` or `.object`.
+        ///
+        /// `params == null` means that the was no `"params"` field. `params == .null` means that the `"params"` field was set to `null`.
         params: ?std.json.Value,
     };
 
     pub const Response = struct {
         comptime jsonrpc: []const u8 = "2.0",
         /// The request id.
+        ///
+        /// It must be the same as the value of the `id` member in the `Request` object.
+        /// If there was an error in detecting the id in the `Request` object (e.g. `Error.Code.parse_error`/`Error.Code.invalid_request`), it must be `null`.
         id: ?ID,
         /// The result of a request. This member is REQUIRED on success.
         /// This member MUST NOT exist if there was an error invoking the m
@@ -110,6 +117,7 @@ pub const JsonRPCMessage = union(enum) {
             data: std.json.Value = .null,
 
             /// The error codes from and including -32768 to -32000 are reserved for pre-defined errors. Any code within this range, but not defined explicitly below is reserved for future use.
+            ///
             /// The remainder of the space is available for application defined errors.
             pub const Code = enum(i64) {
                 /// Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.
