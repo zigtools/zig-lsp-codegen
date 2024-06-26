@@ -167,7 +167,7 @@ pub const JsonRPCMessage = union(enum) {
             const field_name = blk: {
                 const name_token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
                 const maybe_field_name = switch (name_token) {
-                    inline .string, .allocated_string => |slice| std.meta.stringToEnum(std.meta.FieldEnum(Fields), slice),
+                    .string, .allocated_string => |slice| std.meta.stringToEnum(std.meta.FieldEnum(Fields), slice),
                     .object_end => break, // No more fields.
                     else => return error.UnexpectedToken,
                 };
@@ -183,7 +183,7 @@ pub const JsonRPCMessage = union(enum) {
                         try source.skipValue();
                         continue;
                     } else {
-                        return error.UnexpectedToken;
+                        return error.UnknownField;
                     }
                 };
             };
@@ -595,7 +595,7 @@ pub const JsonRPCMessage = union(enum) {
         try testParseExpectedError(
             \\{"jsonrpc": "2.0", "id": 1, "other": null, ".": "Sie", "params": {}, "extra": {}}
         ,
-            error.UnexpectedToken,
+            error.UnknownField,
             error.UnknownField,
             .{ .ignore_unknown_fields = false },
         );
@@ -760,7 +760,7 @@ pub fn Message(
             pub const jsonParse = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
             pub const jsonParseFromValue = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
 
-            pub fn jsonStringify(request: Notification, stream: anytype) @TypeOf(stream.*).Error!void {
+            pub fn jsonStringify(request: Request, stream: anytype) @TypeOf(stream.*).Error!void {
                 try stream.beginObject();
 
                 try stream.objectField("jsonrpc");
@@ -798,25 +798,25 @@ pub fn Message(
 
         pub fn fromJsonRPCMessage(message: JsonRPCMessage, allocator: std.mem.Allocator, options: std.json.ParseOptions) std.json.ParseFromValueError!Msg {
             switch (message) {
-                inline .request, .notification => |item, tag| {
-                    const Params = switch (tag) {
-                        .request => RequestParams,
-                        .notification => NotificationParams,
-                        else => unreachable,
-                    };
-
-                    var params: Params = undefined;
-                    if (methodToParamsParserMap(Params, std.json.Value).get(item.method)) |parse| {
-                        params = try parse(item.params orelse .null, allocator, options);
+                .request => |item| {
+                    var params: RequestParams = undefined;
+                    if (methodToParamsParserMap(RequestParams, std.json.Value).get(item.method)) |parse| {
+                        params = parse(item.params orelse .null, allocator, options) catch |err| return if (item.params == null) error.MissingField else err;
                     } else {
                         params = .{ .other = .{ .method = item.method, .params = item.params } };
                     }
-
-                    switch (tag) {
-                        .request => return .{ .request = .{ .id = item.id, .params = params } },
-                        .notification => return .{ .notification = .{ .params = params } },
-                        else => unreachable,
+                    return .{ .request = .{ .id = item.id, .params = params } };
+                },
+                .notification => |item| {
+                    var params: NotificationParams = undefined;
+                    if (methodToParamsParserMap(NotificationParams, std.json.Value).get(item.method)) |parse| {
+                        params = parse(item.params orelse .null, allocator, options) catch |err| return if (item.params == null) error.MissingField else err;
+                    } else if (isRequestMethod(item.method)) {
+                        return error.MissingField;
+                    } else {
+                        params = .{ .other = .{ .method = item.method, .params = item.params } };
                     }
+                    return .{ .notification = .{ .params = params } };
                 },
                 .response => |response| return .{ .response = response },
             }
@@ -900,13 +900,13 @@ pub fn Message(
             var id: ?JsonRPCMessage.ID = null;
             var saw_result_field: bool = false;
             var saw_error_field: bool = false;
-            var state: State = .unknown;
+            var state: ParserState = .unknown;
 
             while (true) {
                 const field_name = blk: {
                     const name_token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
                     const maybe_field_name = switch (name_token) {
-                        inline .string, .allocated_string => |slice| std.meta.stringToEnum(std.meta.FieldEnum(JsonRPCMessage.Fields), slice),
+                        .string, .allocated_string => |slice| std.meta.stringToEnum(std.meta.FieldEnum(JsonRPCMessage.Fields), slice),
                         .object_end => break, // No more fields.
                         else => return error.UnexpectedToken,
                     };
@@ -922,7 +922,7 @@ pub fn Message(
                             try source.skipValue();
                             continue;
                         } else {
-                            return error.UnexpectedToken;
+                            return error.UnknownField;
                         }
                     };
                 };
@@ -1025,7 +1025,14 @@ pub fn Message(
                 // The "params" field is missing. We will artifically insert `"params": null` to see `null` is a valid params field.
                 var null_scanner = std.json.Scanner.initCompleteInput(allocator, "null");
                 state = parseParamsFromTokenStreamWithKnownMethod(allocator, &null_scanner, state.method, options) catch return error.MissingField;
+                if (state == .uninteresting_request_or_notification) {
+                    std.debug.assert(state.uninteresting_request_or_notification.params.? == .null);
+                    state.uninteresting_request_or_notification.params = null;
+                }
             }
+
+            const jsonrpc_value = jsonrpc orelse return error.MissingField;
+            if (!std.mem.eql(u8, jsonrpc_value, "2.0")) return error.UnexpectedToken; // the "jsonrpc" field must be "2.0"
 
             switch (state) {
                 .unknown => return error.MissingField, // Where, fields?
@@ -1070,7 +1077,7 @@ pub fn Message(
             params_source: anytype,
             method: []const u8,
             options: std.json.ParseOptions,
-        ) std.json.ParseError(std.json.Scanner)!State {
+        ) std.json.ParseError(std.json.Scanner)!ParserState {
             std.debug.assert(options.duplicate_field_behavior == .@"error"); // any other behavior is unsupported
 
             if (methodToParamsParserMap(RequestParams, @TypeOf(params_source)).get(method)) |parse| {
@@ -1079,7 +1086,7 @@ pub fn Message(
                 return .{ .notification = try parse(params_source, allocator, options) };
             } else {
                 // TODO make it configurable if the params should be parsed
-                const params = try std.json.innerParse(?std.json.Value, allocator, params_source, options);
+                const params = try std.json.innerParse(std.json.Value, allocator, params_source, options);
                 return .{ .uninteresting_request_or_notification = .{ .method = method, .params = params } };
             }
         }
@@ -1112,6 +1119,16 @@ pub fn Message(
 
                     const parse_func = struct {
                         fn parse(params_source: Source, allocator: std.mem.Allocator, options: std.json.ParseOptions) !Params {
+                            if (field.type == void or field.type == ?void) {
+                                switch (Source) {
+                                    std.json.Value => if (params_source != .null) return error.UnexpectedToken,
+                                    else => {
+                                        if (try params_source.peekNextTokenType() != .null) return error.UnexpectedToken;
+                                        std.debug.assert(try params_source.next() == .null);
+                                    },
+                                }
+                                return @unionInit(Params, field.name, if (field.type == void) {} else null);
+                            }
                             const params = switch (Source) {
                                 std.json.Value => try std.json.parseFromValueLeaky(field.type, allocator, params_source, options),
                                 else => try std.json.innerParse(field.type, allocator, params_source, options),
@@ -1134,7 +1151,7 @@ pub fn Message(
             switch (self) {
                 .other => |method_with_params| {
                     try stream.objectField("method");
-                    try stream.objectField(method_with_params.method);
+                    try stream.write(method_with_params.method);
 
                     if (method_with_params.params) |params_val| {
                         try stream.objectField("params");
@@ -1146,15 +1163,18 @@ pub fn Message(
                 },
                 inline else => |params, method| {
                     try stream.objectField("method");
-                    try stream.objectField(method);
+                    try stream.write(method);
 
                     try stream.objectField("params");
-                    try stream.write(params);
+                    switch (@TypeOf(params)) {
+                        ?void, void => try stream.write(null),
+                        else => try stream.write(params),
+                    }
                 },
             }
         }
 
-        const State = union(enum) {
+        const ParserState = union(enum) {
             /// The `"method"` and `"params"` field has been encountered. The method is part of `RequestParams`.
             request: RequestParams,
             /// The `"method"` and `"params"` field has been encountered. The method is part of `NotificationParams`.
