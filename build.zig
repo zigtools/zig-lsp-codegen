@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = b.graph.host,
     });
-    // The metaMode.json file should be removed once https://github.com/ziglang/zig/issues/17895 has been resolved.
+    // The metaModel.json file should be removed once https://github.com/ziglang/zig/issues/17895 has been resolved.
     exe.root_module.addAnonymousImport("meta-model", .{ .root_source_file = b.path("metaModel.json") });
 
     const run_codegen = b.addRunArtifact(exe);
