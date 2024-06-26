@@ -159,7 +159,8 @@ pub const JsonRPCMessage = union(enum) {
         source: anytype,
         options: std.json.ParseOptions,
     ) std.json.ParseError(@TypeOf(source.*))!JsonRPCMessage {
-        if (try source.next() != .object_begin) return error.UnexpectedToken;
+        if (try source.next() != .object_begin)
+            return error.UnexpectedToken;
 
         var fields: Fields = .{};
 
@@ -258,7 +259,8 @@ pub const JsonRPCMessage = union(enum) {
                 }
             } else {
                 // Didn't match anything.
-                if (!options.ignore_unknown_fields) return error.UnknownField;
+                if (!options.ignore_unknown_fields)
+                    return error.UnknownField;
             }
         }
 
@@ -365,16 +367,21 @@ pub const JsonRPCMessage = union(enum) {
             } else {
                 if (self.@"error" != null) {
                     const is_result_set = if (self.result) |result| result != .null else false;
-                    if (is_result_set) return error.UnexpectedToken; // the "result" and "error" fields can't both be set
+                    if (is_result_set)
+                        return error.UnexpectedToken; // the "result" and "error" fields can't both be set
                 } else {
                     const is_result_set = self.result != null;
-                    if (!is_result_set) return error.MissingField;
+                    if (!is_result_set)
+                        return error.MissingField;
                 }
 
                 return .{
                     .response = .{
                         .id = self.id,
-                        .result_or_error = if (self.@"error") |err| .{ .@"error" = err } else .{ .result = self.result },
+                        .result_or_error = if (self.@"error") |err|
+                            .{ .@"error" = err }
+                        else
+                            .{ .result = self.result },
                     },
                 };
             }
@@ -832,7 +839,8 @@ pub fn Message(
                 .request => |item| {
                     var params: RequestParams = undefined;
                     if (methodToParamsParserMap(RequestParams, std.json.Value).get(item.method)) |parse| {
-                        params = parse(item.params orelse .null, allocator, options) catch |err| return if (item.params == null) error.MissingField else err;
+                        params = parse(item.params orelse .null, allocator, options) catch |err|
+                            return if (item.params == null) error.MissingField else err;
                     } else {
                         params = .{ .other = .{ .method = item.method, .params = item.params } };
                     }
@@ -841,7 +849,8 @@ pub fn Message(
                 .notification => |item| {
                     var params: NotificationParams = undefined;
                     if (methodToParamsParserMap(NotificationParams, std.json.Value).get(item.method)) |parse| {
-                        params = parse(item.params orelse .null, allocator, options) catch |err| return if (item.params == null) error.MissingField else err;
+                        params = parse(item.params orelse .null, allocator, options) catch |err|
+                            return if (item.params == null) error.MissingField else err;
                     } else if (isRequestMethod(item.method)) {
                         return error.MissingField;
                     } else {
@@ -925,7 +934,8 @@ pub fn Message(
                 options.allocate = .alloc_if_needed;
             }
 
-            if (try source.next() != .object_begin) return error.UnexpectedToken;
+            if (try source.next() != .object_begin)
+                return error.UnexpectedToken;
 
             var jsonrpc: ?[]const u8 = null;
             var id: ?JsonRPCMessage.ID = null;
@@ -960,12 +970,14 @@ pub fn Message(
 
                 switch (field_name) {
                     .jsonrpc => {
-                        if (jsonrpc != null) return error.DuplicateField;
+                        if (jsonrpc != null)
+                            return error.DuplicateField;
                         jsonrpc = try std.json.innerParse([]const u8, allocator, &source, options);
                         continue;
                     },
                     .id => {
-                        if (id != null) return error.DuplicateField;
+                        if (id != null)
+                            return error.DuplicateField;
                         id = try std.json.innerParse(?JsonRPCMessage.ID, allocator, &source, options);
                         continue;
                     },
@@ -1006,11 +1018,13 @@ pub fn Message(
                         .method, .params => return error.UnexpectedToken,
                         .result => return error.DuplicateField,
                         .@"error" => {
-                            if (saw_error_field) return error.DuplicateField;
+                            if (saw_error_field)
+                                return error.DuplicateField;
                             saw_error_field = true;
 
                             // Allows { "result": null, "error": {...} }
-                            if (result != .null) return error.UnexpectedToken;
+                            if (result != .null)
+                                return error.UnexpectedToken;
                             state = .{ .response_error = try std.json.innerParse(JsonRPCMessage.Response.Error, allocator, &source, options) };
                             continue;
                         },
@@ -1019,7 +1033,8 @@ pub fn Message(
                         .jsonrpc, .id => unreachable, // checked above
                         .method, .params => return error.UnexpectedToken,
                         .result => {
-                            if (saw_result_field) return error.DuplicateField;
+                            if (saw_result_field)
+                                return error.DuplicateField;
                             saw_result_field = true;
 
                             // Allows { "error": {...}, "result": null }
@@ -1055,15 +1070,18 @@ pub fn Message(
             if (state == .method) {
                 // The "params" field is missing. We will artifically insert `"params": null` to see `null` is a valid params field.
                 var null_scanner = std.json.Scanner.initCompleteInput(allocator, "null");
-                state = parseParamsFromTokenStreamWithKnownMethod(allocator, &null_scanner, state.method, options) catch return error.MissingField;
+                state = parseParamsFromTokenStreamWithKnownMethod(allocator, &null_scanner, state.method, options) catch
+                    return error.MissingField;
                 if (state == .uninteresting_request_or_notification) {
                     std.debug.assert(state.uninteresting_request_or_notification.params.? == .null);
                     state.uninteresting_request_or_notification.params = null;
                 }
             }
 
-            const jsonrpc_value = jsonrpc orelse return error.MissingField;
-            if (!std.mem.eql(u8, jsonrpc_value, "2.0")) return error.UnexpectedToken; // the "jsonrpc" field must be "2.0"
+            const jsonrpc_value = jsonrpc orelse
+                return error.MissingField;
+            if (!std.mem.eql(u8, jsonrpc_value, "2.0"))
+                return error.UnexpectedToken; // the "jsonrpc" field must be "2.0"
 
             switch (state) {
                 .unknown => return error.MissingField, // Where, fields?
@@ -1071,24 +1089,28 @@ pub fn Message(
                 .method => unreachable, // checked above
                 .response_result => |result| return .{
                     .response = .{
-                        .id = id orelse return error.MissingField, // the "result" field indicates a response but there was not "id" field
+                        .id = id orelse
+                            return error.MissingField, // the "result" field indicates a response but there was not "id" field
                         .result_or_error = .{ .result = result },
                     },
                 },
                 .response_error => |err| return .{
                     .response = .{
-                        .id = id orelse return error.MissingField, // the "error" field indicates is a response but there was not "id" field
+                        .id = id orelse
+                            return error.MissingField, // the "error" field indicates is a response but there was not "id" field
                         .result_or_error = .{ .@"error" = err },
                     },
                 },
                 .request => |params| return .{
                     .request = .{
-                        .id = id orelse return error.MissingField, // "method" is a request but there was not "id" field
+                        .id = id orelse
+                            return error.MissingField, // "method" is a request but there was not "id" field
                         .params = params,
                     },
                 },
                 .notification => |params| {
-                    if (id != null) return error.UnknownField; // "method" is a notification but there was a "id" field
+                    if (id != null)
+                        return error.UnknownField; // "method" is a notification but there was a "id" field
                     return .{ .notification = .{ .params = params } };
                 },
                 .uninteresting_request_or_notification => |method_with_params| {
@@ -1146,15 +1168,19 @@ pub fn Message(
 
                 var i: usize = 0;
                 for (fields) |field| {
-                    if (std.mem.eql(u8, field.name, "other")) continue;
+                    if (std.mem.eql(u8, field.name, "other"))
+                        continue;
 
                     const parse_func = struct {
                         fn parse(params_source: Source, allocator: std.mem.Allocator, options: std.json.ParseOptions) !Params {
                             if (field.type == void or field.type == ?void) {
                                 switch (Source) {
-                                    std.json.Value => if (params_source != .null) return error.UnexpectedToken,
+                                    std.json.Value => if (params_source != .null) {
+                                        return error.UnexpectedToken;
+                                    },
                                     else => {
-                                        if (try params_source.peekNextTokenType() != .null) return error.UnexpectedToken;
+                                        if (try params_source.peekNextTokenType() != .null)
+                                            return error.UnexpectedToken;
                                         std.debug.assert(try params_source.next() == .null);
                                     },
                                 }

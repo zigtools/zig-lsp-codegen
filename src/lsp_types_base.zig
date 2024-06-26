@@ -177,12 +177,14 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
 
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
             const slice = try std.json.innerParse([]const u8, allocator, source, options);
-            return enum_from_string_map.get(slice) orelse return @unionInit(T, special_value_field_name, slice);
+            return enum_from_string_map.get(slice) orelse
+                return @unionInit(T, special_value_field_name, slice);
         }
 
         pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) std.json.ParseFromValueError!T {
             const slice = try std.json.parseFromValueLeaky([]const u8, allocator, source, options);
-            return enum_from_string_map.get(slice) orelse return @unionInit(T, special_value_field_name, slice);
+            return enum_from_string_map.get(slice) orelse
+                return @unionInit(T, special_value_field_name, slice);
         }
 
         pub fn jsonStringify(self: T, stream: anytype) @TypeOf(stream.*).Error!void {
