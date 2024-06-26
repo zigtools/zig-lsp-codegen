@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const use_llvm = b.option(bool, "use-llvm", "Use Zig's llvm code backend");
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match filter") orelse &[0][]const u8{};
 
     // -------------------------------------------------------------------------
@@ -60,6 +61,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .filters = test_filters,
+        .use_lld = use_llvm,
+        .use_llvm = use_llvm,
     });
     tests.root_module.addImport("lsp-types", lsp_types_module);
 
