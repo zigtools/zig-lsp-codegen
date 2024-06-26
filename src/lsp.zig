@@ -272,8 +272,13 @@ pub const JsonRPCMessage = union(enum) {
     }
 
     /// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved for rpc-internal methods and extensions and MUST NOT be used for anything else.
-    pub fn is_reserved_method_name(name: []const u8) bool {
+    pub fn isReservedMethodName(name: []const u8) bool {
         return std.mem.startsWith(u8, name, "rpc.");
+    }
+
+    test isReservedMethodName {
+        try std.testing.expect(isReservedMethodName("rpc.foo"));
+        try std.testing.expect(!isReservedMethodName("textDocument/completion"));
     }
 
     const Fields = struct {
