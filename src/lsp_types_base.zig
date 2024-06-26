@@ -365,9 +365,7 @@ fn testType(comptime T: type) void {
     _ = &S.stringify;
 }
 
-comptime {
-    @setEvalBranchQuota(10_000);
-
+test {
     for (lsp_types.notification_metadata) |metadata| {
         if (metadata.Params) |Params| {
             testType(Params);
@@ -385,6 +383,9 @@ comptime {
             testType(ErrorData);
         }
     }
+}
 
+comptime {
+    @setEvalBranchQuota(10_000);
     std.testing.refAllDeclsRecursive(@This());
 }
