@@ -20,30 +20,29 @@ pub fn build(b: *std.Build) void {
     const run_codegen = b.addRunArtifact(exe);
     const lsp_types_output_file = run_codegen.addOutputFileArg("lsp_types.zig");
 
-    b.getInstallStep().dependOn(&b.addInstallFile(lsp_types_output_file, "artifacts/lsp_types.zig").step);
-    b.getInstallStep().dependOn(&b.addInstallFile(b.path("src/lsp.zig"), "artifacts/lsp.zig").step);
-
-    const lsp_types_module = b.addModule("lsp-types", .{
-        .root_source_file = lsp_types_output_file,
-        .target = target,
-        .optimize = optimize,
-    });
+    const lsp_parser_module = b.addModule("lsp-parser", .{ .root_source_file = b.path("src/parser.zig") });
+    const lsp_types_module = b.addModule("lsp-types", .{ .root_source_file = lsp_types_output_file });
+    lsp_types_module.addImport("parser", lsp_parser_module);
 
     const lsp_module = b.addModule("lsp", .{
         .root_source_file = b.path("src/lsp.zig"),
         .target = target,
         .optimize = optimize,
     });
-    lsp_module.addImport("lsp-types", lsp_types_module);
+    lsp_module.addImport("parser", lsp_parser_module);
+    lsp_module.addImport("types", lsp_types_module);
 
     // -------------------------------- Autodoc --------------------------------
 
+    // This can be simplified with https://github.com/ziglang/zig/pull/20388
     const autodoc_exe = b.addObject(.{
         .name = "lsp",
         .root_source_file = b.path("src/lsp.zig"),
         .target = target,
         .optimize = .Debug,
     });
+    autodoc_exe.root_module.addImport("parser", lsp_parser_module);
+    autodoc_exe.root_module.addImport("types", lsp_types_module);
 
     const install_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_exe.getEmittedDocs(),
@@ -56,6 +55,7 @@ pub fn build(b: *std.Build) void {
 
     // --------------------------------- Tests ---------------------------------
 
+    // This can be simplified with https://github.com/ziglang/zig/pull/20388
     const tests = b.addTest(.{
         .root_source_file = b.path("src/lsp.zig"),
         .target = target,
@@ -64,7 +64,8 @@ pub fn build(b: *std.Build) void {
         .use_lld = use_llvm,
         .use_llvm = use_llvm,
     });
-    tests.root_module.addImport("lsp-types", lsp_types_module);
+    tests.root_module.addImport("parser", lsp_parser_module);
+    tests.root_module.addImport("types", lsp_types_module);
 
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);

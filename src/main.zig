@@ -166,7 +166,7 @@ fn formatType(
         .reference => |ref| try writer.print("{p}", .{std.zig.fmtId(ref.name)}),
         .array => |arr| try writer.print("[]const {}", .{fmtType(arr.element.*, data.meta_model)}),
         .map => |map| {
-            try writer.writeAll("Map(");
+            try writer.writeAll("parser.Map(");
             switch (map.key) {
                 .base => |base| try switch (base.name) {
                     .Uri => writer.writeAll("Uri"),
@@ -212,9 +212,9 @@ fn formatType(
                     try writer.print(": {},\n", .{fmtType(sub_type, data.meta_model)});
                 }
                 try writer.writeAll(
-                    \\pub const jsonParse = UnionParser(@This()).jsonParse;
-                    \\pub const jsonParseFromValue = UnionParser(@This()).jsonParseFromValue;
-                    \\pub const jsonStringify = UnionParser(@This()).jsonStringify;
+                    \\pub const jsonParse = parser.UnionParser(@This()).jsonParse;
+                    \\pub const jsonParseFromValue = parser.UnionParser(@This()).jsonParseFromValue;
+                    \\pub const jsonStringify = parser.UnionParser(@This()).jsonStringify;
                     \\}
                 );
             }
@@ -451,9 +451,9 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
         .string => {
             try writer.print(
                 \\{s}: []const u8,
-                \\pub const jsonParse = EnumCustomStringValues(@This(), {1}).jsonParse;
-                \\pub const jsonParseFromValue = EnumCustomStringValues(@This(), {1}).jsonParseFromValue;
-                \\pub const jsonStringify = EnumCustomStringValues(@This(), {1}).jsonStringify;
+                \\pub const jsonParse = parser.EnumCustomStringValues(@This(), {1}).jsonParse;
+                \\pub const jsonParseFromValue = parser.EnumCustomStringValues(@This(), {1}).jsonParseFromValue;
+                \\pub const jsonStringify = parser.EnumCustomStringValues(@This(), {1}).jsonStringify;
                 \\
             , .{ field_name, contains_empty_enum });
         },
@@ -461,7 +461,7 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
             try writer.print(
                 \\/// {s}
                 \\_,
-                \\pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
+                \\pub const jsonStringify = parser.EnumStringifyAsInt(@This()).jsonStringify;
                 \\
             , .{docs});
         },

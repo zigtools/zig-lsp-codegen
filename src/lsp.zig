@@ -1,5 +1,8 @@
 const std = @import("std");
 
+pub const types = @import("types");
+pub const parser = @import("parser");
+
 /// See https://www.jsonrpc.org/specification
 pub const JsonRPCMessage = union(enum) {
     request: Request,
@@ -772,14 +775,19 @@ pub fn Message(
     ///   - the field name is the method name of a request message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
     ///
-    /// There must also be a field named `other` which must have the type `MethodWithParams`.
+    /// There must also be a field named `other` of type `MethodWithParams`.
     /// It will be set with the method name and params if request does not match any of the explicitly specified params.
     ///
     /// Example:
     /// ```zig
     /// union(enum) {
+    ///     /// The go to implementation request is sent from the client to the server to resolve the implementation location of a symbol at a given text document position.
     ///     @"textDocument/implementation": ImplementationParams,
+    ///     /// The Completion request is sent from the client to the server to compute completion items at a given cursor position.
     ///     @"textDocument/completion": CompletionParams,
+    ///     /// The shutdown request is sent from the client to the server. It asks the server to shut down, but to not exit.
+    ///     shutdown,
+    ///     /// The request is not one of the above.
     ///     other: MethodWithParams,
     /// }
     /// ```
@@ -788,14 +796,19 @@ pub fn Message(
     ///   - the field name is the method name of a notification message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
     ///
-    /// There must also be a field named `other` which must have the type `MethodWithParams`.
+    /// There must also be a field named `other` of type `MethodWithParams`.
     /// It will be set with the method name and params if notification does not match any of the explicitly specified params.
     ///
     /// Example:
     /// ```zig
     /// union(enum) {
+    ///     /// The document open notification is sent from the client to the server to signal newly opened text documents.
     ///     @"textDocument/didOpen": DidOpenTextDocumentParams,
+    ///     /// The document change notification is sent from the client to the server to signal changes to a text document.
     ///     @"textDocument/didChange": DidChangeTextDocumentParams,
+    ///     /// A notification to ask the server to exit its process.
+    ///     exit,
+    ///     /// The notification is not one of the above.
     ///     other: MethodWithParams,
     /// }
     /// ```
@@ -1193,7 +1206,7 @@ pub fn Message(
             comptime Params: type,
             /// Must be either `*std.json.Scanner`, `*std.json.Reader` or `std.json.Value`.
             comptime Source: type,
-        ) lsp_types.StaticStringMap(ParamsParserFunc(Params, Source)) {
+        ) parser.StaticStringMap(ParamsParserFunc(Params, Source)) {
             comptime {
                 const fields = std.meta.fields(Params);
 
@@ -1231,7 +1244,7 @@ pub fn Message(
                     i += 1;
                 }
 
-                return lsp_types.staticStringMapInitComptime(ParamsParserFunc(Params, Source), kvs_list);
+                return parser.staticStringMapInitComptime(ParamsParserFunc(Params, Source), kvs_list);
             }
         }
 
@@ -1328,19 +1341,19 @@ pub fn Message(
 }
 
 const ExampleRequestMethods = union(enum) {
+    @"textDocument/implementation": types.ImplementationParams,
+    @"textDocument/completion": types.CompletionParams,
     shutdown,
-    @"textDocument/implementation": lsp_types.ImplementationParams,
-    @"textDocument/completion": lsp_types.CompletionParams,
-    /// The request is not one of the above.
     other: MethodWithParams,
 };
+
 const ExampleNotificationMethods = union(enum) {
-    initialized: lsp_types.InitializedParams,
+    initialized: types.InitializedParams,
+    @"textDocument/didChange": types.DidChangeTextDocumentParams,
     exit,
-    @"textDocument/didChange": lsp_types.DidChangeTextDocumentParams,
-    /// The notification is not one of the above.
     other: MethodWithParams,
 };
+
 const ExampleMessage = Message(ExampleRequestMethods, ExampleNotificationMethods);
 
 fn testMessage(message: ExampleMessage, json_message: []const u8) !void {
@@ -1935,45 +1948,45 @@ test "Message.Response - 'result' and 'error' field" {
 }
 
 pub fn ResultType(comptime method: []const u8) type {
-    if (lsp_types.getRequestMetadata(method)) |meta| return meta.Result;
+    if (types.getRequestMetadata(method)) |meta| return meta.Result;
     if (isNotificationMethod(method)) return void;
     @compileError("unknown method '" ++ method ++ "'");
 }
 
 test ResultType {
     comptime {
-        std.debug.assert(ResultType("textDocument/hover") == ?lsp_types.Hover);
-        std.debug.assert(ResultType("textDocument/inlayHint") == ?[]const lsp_types.InlayHint);
+        std.debug.assert(ResultType("textDocument/hover") == ?types.Hover);
+        std.debug.assert(ResultType("textDocument/inlayHint") == ?[]const types.InlayHint);
     }
 }
 
 pub fn ParamsType(comptime method: []const u8) type {
-    if (lsp_types.getRequestMetadata(method)) |meta| return meta.Params orelse void;
-    if (lsp_types.getNotificationMetadata(method)) |meta| return meta.Params orelse void;
+    if (types.getRequestMetadata(method)) |meta| return meta.Params orelse void;
+    if (types.getNotificationMetadata(method)) |meta| return meta.Params orelse void;
     @compileError("unknown method '" ++ method ++ "'");
 }
 
 test ParamsType {
     comptime {
-        std.debug.assert(ParamsType("textDocument/hover") == lsp_types.HoverParams);
-        std.debug.assert(ParamsType("textDocument/inlayHint") == lsp_types.InlayHintParams);
+        std.debug.assert(ParamsType("textDocument/hover") == types.HoverParams);
+        std.debug.assert(ParamsType("textDocument/inlayHint") == types.InlayHintParams);
     }
 }
 
-const request_method_set: lsp_types.StaticStringMap(void) = blk: {
-    var kvs_list: [lsp_types.request_metadata.len]struct { []const u8 } = undefined;
-    for (lsp_types.request_metadata, &kvs_list) |meta, *kv| {
+const request_method_set: parser.StaticStringMap(void) = blk: {
+    var kvs_list: [types.request_metadata.len]struct { []const u8 } = undefined;
+    for (types.request_metadata, &kvs_list) |meta, *kv| {
         kv.* = .{meta.method};
     }
-    break :blk lsp_types.staticStringMapInitComptime(void, kvs_list);
+    break :blk parser.staticStringMapInitComptime(void, kvs_list);
 };
 
-const notification_method_set: lsp_types.StaticStringMap(void) = blk: {
-    var kvs_list: [lsp_types.notification_metadata.len]struct { []const u8 } = undefined;
-    for (lsp_types.notification_metadata, &kvs_list) |meta, *kv| {
+const notification_method_set: parser.StaticStringMap(void) = blk: {
+    var kvs_list: [types.notification_metadata.len]struct { []const u8 } = undefined;
+    for (types.notification_metadata, &kvs_list) |meta, *kv| {
         kv.* = .{meta.method};
     }
-    break :blk lsp_types.staticStringMapInitComptime(void, kvs_list);
+    break :blk parser.staticStringMapInitComptime(void, kvs_list);
 };
 
 /// Return whether there is a request with the given method name.
@@ -2008,8 +2021,7 @@ test isNotificationMethod {
     try std.testing.expect(!isNotificationMethod(""));
 }
 
-const lsp_types = @import("lsp-types");
-
 comptime {
+    @setEvalBranchQuota(10_000);
     std.testing.refAllDeclsRecursive(@This());
 }
