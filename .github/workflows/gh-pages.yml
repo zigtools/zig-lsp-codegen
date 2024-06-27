@@ -1,9 +1,10 @@
-name: Deploy autodoc to Github Pages
+name: Deploy GitHub Pages
 
 on:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,7 +34,8 @@ jobs:
         with:
           version: master
 
-      - run: zig build docs --summary all
+      - name: Generate Documentation
+        run: zig build docs --summary all
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

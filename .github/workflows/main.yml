@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
+    - master
   pull_request:
+    - master
   workflow_dispatch:
 
 jobs:
@@ -19,15 +21,19 @@ jobs:
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: goto-bus-stop/setup-zig@v2
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ matrix.zig-version }}
 
-      - run: zig env
+      - name: Print Zig Environment 
+        run: zig env
 
-      - run: zig fmt --ast-check --check src
+      - name: Check Formatting
+        run: zig fmt --ast-check --check src
 
-      - name: zig build
-        run: zig build install test --summary all
+      - name: Run Tests
+        run: zig build test --summary all
