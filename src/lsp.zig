@@ -1139,7 +1139,14 @@ pub fn Message(
                 return .{ .notification = try parse(params_source, allocator, options) };
             } else {
                 // TODO make it configurable if the params should be parsed
-                const params = try std.json.innerParse(std.json.Value, allocator, params_source, options);
+                const params = switch (try params_source.peekNextTokenType()) {
+                    .null => blk: {
+                        std.debug.assert(try params_source.next() == .null);
+                        break :blk .null;
+                    },
+                    .object_begin, .array_begin => try std.json.Value.jsonParse(allocator, params_source, options),
+                    else => return error.UnexpectedToken, // "params" field must be null/object/array
+                };
                 return .{ .uninteresting_request_or_notification = .{ .method = method, .params = params } };
             }
         }
