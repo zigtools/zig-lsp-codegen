@@ -39,7 +39,7 @@ pub const JsonRPCMessage = union(enum) {
             switch (try source.peekNextTokenType()) {
                 .number => return .{ .number = try std.json.innerParse(i64, allocator, source, options) },
                 .string => return .{ .string = try std.json.innerParse([]const u8, allocator, source, options) },
-                else => return error.SyntaxError,
+                else => return error.UnexpectedToken,
             }
         }
 
@@ -306,7 +306,7 @@ pub const JsonRPCMessage = union(enum) {
                         return .null;
                     },
                     .object_begin, .array_begin => try std.json.Value.jsonParse(allocator, source, options),
-                    else => error.UnexpectedToken, // "params" field must be null/object/array
+                    else => return error.UnexpectedToken, // "params" field must be null/object/array
                 },
                 .result => try std.json.Value.jsonParse(allocator, source, options),
                 .@"error" => try std.json.innerParse(Response.Error, allocator, source, options),
@@ -324,7 +324,7 @@ pub const JsonRPCMessage = union(enum) {
                 .id => try std.json.innerParseFromValue(?JsonRPCMessage.ID, allocator, source, options),
                 .params => switch (source) {
                     .null, .object, .array => source,
-                    else => error.UnexpectedToken, // "params" field must be null/object/array
+                    else => return error.UnexpectedToken, // "params" field must be null/object/array
                 },
                 .result => source,
                 .@"error" => try std.json.innerParseFromValue(Response.Error, allocator, source, options),
@@ -639,6 +639,28 @@ pub const JsonRPCMessage = union(enum) {
         );
     }
 
+    test "emit_null_optional_fields" {
+        try std.testing.expectFmt(
+            \\{"jsonrpc":"2.0","method":"exit"}
+        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = null } }, .{ .emit_null_optional_fields = false })});
+        try std.testing.expectFmt(
+            \\{"jsonrpc":"2.0","method":"exit","params":null}
+        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = null } }, .{ .emit_null_optional_fields = true })});
+        try std.testing.expectFmt(
+            \\{"jsonrpc":"2.0","method":"exit","params":null}
+        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = .null } }, .{ .emit_null_optional_fields = false })});
+        try std.testing.expectFmt(
+            \\{"jsonrpc":"2.0","method":"exit","params":null}
+        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = .null } }, .{ .emit_null_optional_fields = true })});
+
+        try std.testing.expectFmt(
+            \\{"jsonrpc":"2.0","result":null}
+        , "{}", .{std.json.fmt(JsonRPCMessage{ .response = .{ .id = null, .result_or_error = .{ .result = null } } }, .{ .emit_null_optional_fields = false })});
+        try std.testing.expectFmt(
+            \\{"jsonrpc":"2.0","id":null,"result":null}
+        , "{}", .{std.json.fmt(JsonRPCMessage{ .response = .{ .id = null, .result_or_error = .{ .result = null } } }, .{ .emit_null_optional_fields = true })});
+    }
+
     fn testParse(message: []const u8, expected: JsonRPCMessage, parse_options: std.json.ParseOptions) !void {
         const allocator = std.testing.allocator;
 
@@ -841,6 +863,8 @@ pub fn Message(
                     if (methodToParamsParserMap(RequestParams, std.json.Value).get(item.method)) |parse| {
                         params = parse(item.params orelse .null, allocator, options) catch |err|
                             return if (item.params == null) error.MissingField else err;
+                    } else if (isNotificationMethod(item.method)) {
+                        return error.UnexpectedToken; //  "method" is a notification but there was a "id" field
                     } else {
                         params = .{ .other = .{ .method = item.method, .params = item.params } };
                     }
@@ -852,7 +876,7 @@ pub fn Message(
                         params = parse(item.params orelse .null, allocator, options) catch |err|
                             return if (item.params == null) error.MissingField else err;
                     } else if (isRequestMethod(item.method)) {
-                        return error.MissingField;
+                        return error.MissingField; //  "method" is a request but there was no "id" field
                     } else {
                         params = .{ .other = .{ .method = item.method, .params = item.params } };
                     }
@@ -995,7 +1019,11 @@ pub fn Message(
                 }
 
                 switch (state) {
-                    .request, .notification => return error.DuplicateField,
+                    .request, .notification => switch (field_name) {
+                        .jsonrpc, .id => unreachable, // checked above
+                        .method, .params => return error.DuplicateField,
+                        .result, .@"error" => return error.UnexpectedToken,
+                    },
                     .uninteresting_request_or_notification => switch (field_name) {
                         .jsonrpc, .id => unreachable, // checked above
                         .method, .params => return error.DuplicateField,
@@ -1005,17 +1033,17 @@ pub fn Message(
                         .jsonrpc, .id => unreachable, // checked above
                         .method => return error.DuplicateField,
                         .params => unreachable, // checked above
-                        .result, .@"error" => return error.UnexpectedToken,
+                        .result, .@"error" => return error.UnexpectedToken, // the "method" field indicates a request or notification which can't have the "result" or "error" field
                     },
                     .params => switch (field_name) {
                         .jsonrpc, .id => unreachable, // checked above
                         .method => unreachable, // checked above
                         .params => return error.DuplicateField,
-                        .result, .@"error" => return error.UnexpectedToken,
+                        .result, .@"error" => return error.UnexpectedToken, // the "params" field indicates a request or notification which can't have the "result" or "error" field
                     },
                     .response_result => |result| switch (field_name) {
                         .jsonrpc, .id => unreachable, // checked above
-                        .method, .params => return error.UnexpectedToken,
+                        .method, .params => return error.UnexpectedToken, // the "result" field indicates a response which can't have the "method" or "params" field
                         .result => return error.DuplicateField,
                         .@"error" => {
                             if (saw_error_field)
@@ -1031,7 +1059,7 @@ pub fn Message(
                     },
                     .response_error => switch (field_name) {
                         .jsonrpc, .id => unreachable, // checked above
-                        .method, .params => return error.UnexpectedToken,
+                        .method, .params => return error.UnexpectedToken, // the "error" field indicates a response which can't have the "method" or "params" field
                         .result => {
                             if (saw_result_field)
                                 return error.DuplicateField;
@@ -1089,15 +1117,13 @@ pub fn Message(
                 .method => unreachable, // checked above
                 .response_result => |result| return .{
                     .response = .{
-                        .id = id orelse
-                            return error.MissingField, // the "result" field indicates a response but there was not "id" field
+                        .id = id,
                         .result_or_error = .{ .result = result },
                     },
                 },
                 .response_error => |err| return .{
                     .response = .{
-                        .id = id orelse
-                            return error.MissingField, // the "error" field indicates is a response but there was not "id" field
+                        .id = id,
                         .result_or_error = .{ .@"error" = err },
                     },
                 },
@@ -1110,7 +1136,7 @@ pub fn Message(
                 },
                 .notification => |params| {
                     if (id != null)
-                        return error.UnknownField; // "method" is a notification but there was a "id" field
+                        return error.UnexpectedToken; // "method" is a notification but there was a "id" field
                     return .{ .notification = .{ .params = params } };
                 },
                 .uninteresting_request_or_notification => |method_with_params| {
@@ -1229,10 +1255,17 @@ pub fn Message(
                     try stream.objectField("method");
                     try stream.write(method);
 
-                    try stream.objectField("params");
                     switch (@TypeOf(params)) {
-                        ?void, void => try stream.write(null),
-                        else => try stream.write(params),
+                        ?void, void => {
+                            if (stream.options.emit_null_optional_fields) {
+                                try stream.objectField("params");
+                                try stream.write(null);
+                            }
+                        },
+                        else => {
+                            try stream.objectField("params");
+                            try stream.write(params);
+                        },
                     }
                 },
             }
@@ -1349,24 +1382,54 @@ fn testMessageExpectError(expected_error: anytype, json_message: []const u8) !vo
     try std.testing.expectError(expected_error, message_from_value);
 }
 
-test Message {
-    // duplicate field
-    if (false) {
-        // Enable once https://github.com/ziglang/zig/pull/20430 has been merged
-        try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"2.0\"     , \"jsonrpc\": \"2.0\"     }");
-        try testMessageExpectError(error.DuplicateField, "{ \"id\": 5                , \"id\": 5                }");
-        try testMessageExpectError(error.DuplicateField, "{ \"method\": \"shutdown\" , \"method\": \"shutdown\" }");
-        try testMessageExpectError(error.DuplicateField, "{ \"params\": null         , \"params\": null         }");
-        try testMessageExpectError(error.DuplicateField, "{ \"result\": null         , \"result\": null         }");
-        try testMessageExpectError(error.DuplicateField, "{ \"error\": \"error\": {\"code\": 0, \"message\": \"\"} , \"error\": \"error\": {\"code\": 0, \"message\": \"\"} }");
-    }
+// A lot of these tests can be restructured once https://github.com/ziglang/zig/issues/19295 has been resolved.
 
+test Message {
     try testMessageExpectError(error.UnexpectedToken, "5");
     try testMessageExpectError(error.MissingField, "{}");
+    try testMessageExpectError(error.UnexpectedEndOfInput, "{");
+    try testMessageExpectError(error.UnknownField, "{\"\\uaaaa\": 5}");
     try testMessageExpectError(error.MissingField, "{ \"method\": \"foo\", \"params\": null }");
     try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"1.0\", \"method\": \"foo\", \"params\": null }");
     try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\" }");
     try testMessageExpectError(error.UnknownField, "{ \"foo\": null }");
+
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"1.0\", \"method\": \"foo\", \"params\": null }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\", \"method\": 5      , \"params\": null }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\", \"method\": \"foo\", \"params\": true }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\", \"method\": \"foo\",  \"id\": true    , \"params\": null }");
+}
+
+test "Message - duplicate fields" {
+    if (true) return error.SkipZigTest; // Enable once https://github.com/ziglang/zig/pull/20430 has been merged
+    try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"2.0\"     , \"jsonrpc\": \"2.0\"     }");
+    try testMessageExpectError(error.DuplicateField, "{ \"id\": 5                , \"id\": 5                }");
+    try testMessageExpectError(error.DuplicateField, "{ \"method\": \"shutdown\" , \"method\": \"shutdown\" }");
+    try testMessageExpectError(error.DuplicateField, "{ \"params\": null         , \"params\": null         }");
+    try testMessageExpectError(error.DuplicateField, "{ \"result\": null         , \"result\": null         }");
+    try testMessageExpectError(error.DuplicateField, "{ \"error\": \"error\": {\"code\": 0, \"message\": \"\"} , \"error\": \"error\": {\"code\": 0, \"message\": \"\"} }");
+}
+
+test "Message - stringify emit_null_optional_fields" {
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"exit"}
+    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .exit } }, .{ .emit_null_optional_fields = false })});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"exit","params":null}
+    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .exit } }, .{ .emit_null_optional_fields = true })});
+
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"foo"}
+    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = null } } } }, .{ .emit_null_optional_fields = false })});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"foo","params":null}
+    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = null } } } }, .{ .emit_null_optional_fields = true })});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"foo","params":null}
+    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = .null } } } }, .{ .emit_null_optional_fields = false })});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"foo","params":null}
+    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = .null } } } }, .{ .emit_null_optional_fields = true })});
 }
 
 test "Message.Request" {
@@ -1389,103 +1452,9 @@ test "Message.Request" {
         \\    }
         \\}
     );
-
-    const msg: ExampleMessage = .{ .request = .{ .id = .{ .number = 5 }, .params = .shutdown } };
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"shutdown\" , \"params\": null         }");
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"params\": null         , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"id\": 5                , \"params\": null         }");
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"params\": null         , \"id\": 5                }");
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         , \"id\": 5                , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         , \"method\": \"shutdown\" , \"id\": 5                }");
-    try testMessage(msg, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"params\": null         }");
-    try testMessage(msg, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"params\": null         , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"id\": 5                , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"params\": null         }");
-    try testMessage(msg, "{ \"id\": 5                , \"method\": \"shutdown\" , \"params\": null         , \"jsonrpc\": \"2.0\"     }");
-    try testMessage(msg, "{ \"id\": 5                , \"params\": null         , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"id\": 5                , \"params\": null         , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"params\": null         }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"params\": null         , \"id\": 5                }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"params\": null         }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"id\": 5                , \"params\": null         , \"jsonrpc\": \"2.0\"     }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"params\": null         , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"params\": null         , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
-    try testMessage(msg, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"id\": 5                }");
-    try testMessage(msg, "{ \"params\": null         , \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"params\": null         , \"id\": 5                , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     }");
-    try testMessage(msg, "{ \"params\": null         , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
-    try testMessage(msg, "{ \"params\": null         , \"method\": \"shutdown\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
-
-    // missing "params" field but `ParamsType(method) == void`
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"id\": 5                }");
-    try testMessage(msg, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" }");
-    try testMessage(msg, "{ \"id\": 5                , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
-    try testMessage(msg, "{ \"method\": \"shutdown\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
-
-    // "params" field is explicit null and method is unknown
-    const unknown_msg_null_params: ExampleMessage = .{ .request = .{ .id = .{ .number = 5 }, .params = .{ .other = .{ .method = "unknown", .params = .null } } } };
-    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"method\": \"unknown\" , \"params\": null        }");
-    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"params\": null        , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"id\": 5               , \"params\": null        }");
-    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"params\": null        , \"id\": 5               }");
-    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"params\": null        , \"id\": 5               , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"params\": null        , \"method\": \"unknown\" , \"id\": 5               }");
-    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"params\": null        }");
-    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"params\": null        , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"params\": null        }");
-    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"method\": \"unknown\" , \"params\": null        , \"jsonrpc\": \"2.0\"    }");
-    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"params\": null        , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"params\": null        , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    }");
-    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"params\": null        }");
-    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"params\": null        , \"id\": 5               }");
-    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"params\": null        }");
-    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"id\": 5               , \"params\": null        , \"jsonrpc\": \"2.0\"    }");
-    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"params\": null        , \"jsonrpc\": \"2.0\"    , \"id\": 5               }");
-    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"params\": null        , \"id\": 5               , \"jsonrpc\": \"2.0\"    }");
-    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"id\": 5               }");
-    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"id\": 5               , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    }");
-    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"id\": 5               }");
-    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"method\": \"unknown\" , \"id\": 5               , \"jsonrpc\": \"2.0\"    }");
-
-    // missing "params" field and method is unknown
-    const unknown_msg_no_params: ExampleMessage = .{ .request = .{ .id = .{ .number = 5 }, .params = .{ .other = .{ .method = "unknown", .params = null } } } };
-    try testMessage(unknown_msg_no_params, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_no_params, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"unknown\" , \"id\": 5                }");
-    try testMessage(unknown_msg_no_params, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"unknown\" }");
-    try testMessage(unknown_msg_no_params, "{ \"id\": 5                , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"     }");
-    try testMessage(unknown_msg_no_params, "{ \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
-    try testMessage(unknown_msg_no_params, "{ \"method\": \"unknown\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
-
-    // missing "params" field
-    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"textDocument/completion\" }");
-    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"textDocument/completion\" , \"id\": 5                }");
-    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"textDocument/completion\" }");
-    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"method\": \"textDocument/completion\" , \"jsonrpc\": \"2.0\"     }");
-    try testMessageExpectError(error.MissingField, "{ \"method\": \"textDocument/completion\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
-    try testMessageExpectError(error.MissingField, "{ \"method\": \"textDocument/completion\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
-
-    // missing "jsonrpc" field
-    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"method\": \"shutdown\" , \"params\": null         }");
-    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"params\": null         , \"method\": \"shutdown\" }");
-    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"id\": 5                , \"params\": null         }");
-    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"params\": null         , \"id\": 5                }");
-    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"id\": 5                , \"method\": \"shutdown\" }");
-    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"method\": \"shutdown\" , \"id\": 5                }");
-
-    // missing "method" field
-    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"params\": null         }");
-    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         , \"id\": 5                }");
-    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"params\": null         }");
-    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"params\": null         , \"jsonrpc\": \"2.0\"     }");
-    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
-    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
 }
 
-test "Message.Request with null params" {
+test "Message.Request - null params" {
     try testMessage(.{
         .request = .{
             .id = .{ .number = 3 },
@@ -1513,7 +1482,7 @@ test "Message.Request with null params" {
     );
 }
 
-test "Message.Request other params" {
+test "Message.Request - unknown method" {
     try testMessage(.{
         .request = .{
             .id = .{ .string = "some-id" },
@@ -1525,6 +1494,19 @@ test "Message.Request other params" {
         \\    "id": "some-id",
         \\    "method": "some/method",
         \\    "params": null
+        \\}
+    );
+    try testMessage(.{
+        .request = .{
+            .id = .{ .string = "some-id" },
+            .params = .{ .other = .{ .method = "some/method", .params = .{ .array = std.json.Array.init(std.testing.allocator) } } },
+        },
+    },
+        \\{
+        \\    "jsonrpc": "2.0",
+        \\    "id": "some-id",
+        \\    "method": "some/method",
+        \\    "params": []
         \\}
     );
     try testMessage(.{
@@ -1541,12 +1523,116 @@ test "Message.Request other params" {
     );
 }
 
-test "libadwaita" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+test "Message.Request - random field order" {
+    const msg: ExampleMessage = .{ .request = .{ .id = .{ .number = 5 }, .params = .shutdown } };
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"shutdown\" , \"params\": null         }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"params\": null         , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"id\": 5                , \"params\": null         }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"params\": null         , \"id\": 5                }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         , \"id\": 5                , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         , \"method\": \"shutdown\" , \"id\": 5                }");
+    try testMessage(msg, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"params\": null         }");
+    try testMessage(msg, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"params\": null         , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"id\": 5                , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"params\": null         }");
+    try testMessage(msg, "{ \"id\": 5                , \"method\": \"shutdown\" , \"params\": null         , \"jsonrpc\": \"2.0\"     }");
+    try testMessage(msg, "{ \"id\": 5                , \"params\": null         , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"id\": 5                , \"params\": null         , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"params\": null         }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"params\": null         , \"id\": 5                }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"params\": null         }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"id\": 5                , \"params\": null         , \"jsonrpc\": \"2.0\"     }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"params\": null         , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"params\": null         , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
+    try testMessage(msg, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"id\": 5                }");
+    try testMessage(msg, "{ \"params\": null         , \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"params\": null         , \"id\": 5                , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     }");
+    try testMessage(msg, "{ \"params\": null         , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
+    try testMessage(msg, "{ \"params\": null         , \"method\": \"shutdown\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
+}
 
-    const result = ExampleMessage.parseFromSliceLeaky(arena.allocator(), "{ \"jsonrpc\": \"2.0\"                    , \"method\": \"textDocument/completion\" }", .{});
-    try std.testing.expectError(error.MissingField, result);
+test "Message.Request - missing 'jsonrpc' field" {
+    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"method\": \"shutdown\" , \"params\": null         }");
+    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"params\": null         , \"method\": \"shutdown\" }");
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"id\": 5                , \"params\": null         }");
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"params\": null         , \"id\": 5                }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"id\": 5                , \"method\": \"shutdown\" }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"method\": \"shutdown\" , \"id\": 5                }");
+}
+
+test "Message.Request - missing 'id' field" {
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"params\": null         }");
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         , \"method\": \"shutdown\" }");
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"params\": null         }");
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"params\": null         , \"jsonrpc\": \"2.0\"     }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     }");
+}
+
+test "Message.Request - missing 'method' field" {
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"params\": null         }");
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         , \"id\": 5                }");
+    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"params\": null         }");
+    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"params\": null         , \"jsonrpc\": \"2.0\"     }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
+}
+
+test "Message.Request - missing 'params' field but `ParamsType(method) == void`" {
+    const msg: ExampleMessage = .{ .request = .{ .id = .{ .number = 5 }, .params = .shutdown } };
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" , \"id\": 5                }");
+    try testMessage(msg, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"shutdown\" }");
+    try testMessage(msg, "{ \"id\": 5                , \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
+    try testMessage(msg, "{ \"method\": \"shutdown\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
+}
+
+test "Message.Request - 'params' field is explicit null and method is unknown" {
+    const unknown_msg_null_params: ExampleMessage = .{ .request = .{ .id = .{ .number = 5 }, .params = .{ .other = .{ .method = "unknown", .params = .null } } } };
+    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"method\": \"unknown\" , \"params\": null        }");
+    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"params\": null        , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"id\": 5               , \"params\": null        }");
+    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"params\": null        , \"id\": 5               }");
+    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"params\": null        , \"id\": 5               , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_null_params, "{ \"jsonrpc\": \"2.0\"    , \"params\": null        , \"method\": \"unknown\" , \"id\": 5               }");
+    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"params\": null        }");
+    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"params\": null        , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"params\": null        }");
+    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"method\": \"unknown\" , \"params\": null        , \"jsonrpc\": \"2.0\"    }");
+    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"params\": null        , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_null_params, "{ \"id\": 5               , \"params\": null        , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    }");
+    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"params\": null        }");
+    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"params\": null        , \"id\": 5               }");
+    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"params\": null        }");
+    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"id\": 5               , \"params\": null        , \"jsonrpc\": \"2.0\"    }");
+    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"params\": null        , \"jsonrpc\": \"2.0\"    , \"id\": 5               }");
+    try testMessage(unknown_msg_null_params, "{ \"method\": \"unknown\" , \"params\": null        , \"id\": 5               , \"jsonrpc\": \"2.0\"    }");
+    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"id\": 5               }");
+    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"id\": 5               , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    }");
+    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"id\": 5               }");
+    try testMessage(unknown_msg_null_params, "{ \"params\": null        , \"method\": \"unknown\" , \"id\": 5               , \"jsonrpc\": \"2.0\"    }");
+}
+
+test "Message.Request - missing 'params' field and method is unknown" {
+    const unknown_msg_no_params: ExampleMessage = .{ .request = .{ .id = .{ .number = 5 }, .params = .{ .other = .{ .method = "unknown", .params = null } } } };
+    try testMessage(unknown_msg_no_params, "{ \"jsonrpc\": \"2.0\"    , \"id\": 5               , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_no_params, "{ \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" , \"id\": 5               }");
+    try testMessage(unknown_msg_no_params, "{ \"id\": 5               , \"jsonrpc\": \"2.0\"    , \"method\": \"unknown\" }");
+    try testMessage(unknown_msg_no_params, "{ \"id\": 5               , \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    }");
+    try testMessage(unknown_msg_no_params, "{ \"method\": \"unknown\" , \"jsonrpc\": \"2.0\"    , \"id\": 5               }");
+    try testMessage(unknown_msg_no_params, "{ \"method\": \"unknown\" , \"id\": 5               , \"jsonrpc\": \"2.0\"    }");
+}
+
+test "Message.Request - missing 'params' field" {
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"id\": 5                , \"method\": \"textDocument/completion\" }");
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"method\": \"textDocument/completion\" , \"id\": 5                }");
+    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"jsonrpc\": \"2.0\"     , \"method\": \"textDocument/completion\" }");
+    try testMessageExpectError(error.MissingField, "{ \"id\": 5                , \"method\": \"textDocument/completion\" , \"jsonrpc\": \"2.0\"     }");
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"textDocument/completion\" , \"jsonrpc\": \"2.0\"     , \"id\": 5                }");
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"textDocument/completion\" , \"id\": 5                , \"jsonrpc\": \"2.0\"     }");
 }
 
 test "Message.Notification" {
@@ -1561,32 +1647,9 @@ test "Message.Notification" {
         \\    "params": {}
         \\}
     );
-
-    const msg: ExampleMessage = .{ .notification = .{ .params = .exit } };
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     }");
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" }");
-    try testMessage(msg, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     }");
-    try testMessage(msg, "{ \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
-    try testMessage(msg, "{ \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
-
-    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
-    try testMessage(msg, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
-
-    // missing "params" field
-    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"                    , \"method\": \"textDocument/completion\" }");
-    try testMessageExpectError(error.MissingField, "{ \"method\": \"textDocument/completion\" , \"jsonrpc\": \"2.0\"                    }");
-
-    // missing "jsonrpc" field
-    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"params\": null         }");
-    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"method\": \"shutdown\" }");
-
-    // missing "method" field
-    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"     , \"params\": null         }");
-    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"jsonrpc\": \"2.0\"     }");
 }
 
-test "Message.Notification with null params" {
+test "Message.Notification - null params" {
     try testMessage(.{
         .notification = .{
             .params = .exit,
@@ -1610,7 +1673,7 @@ test "Message.Notification with null params" {
     );
 }
 
-test "Message.Notification other params" {
+test "Message.Notification - unknown method" {
     try testMessage(.{
         .notification = .{
             .params = .{ .other = .{ .method = "some/method", .params = .null } },
@@ -1634,69 +1697,217 @@ test "Message.Notification other params" {
     );
 }
 
-test "Message.Response" {
-    const msg_error: ExampleMessage = .{
-        .response = .{
-            .id = .{ .number = 5 },
-            .result_or_error = .{
-                .@"error" = .{
-                    .code = @enumFromInt(0),
-                    .message = "",
-                },
-            },
-        },
-    };
-    const msg_result: ExampleMessage = .{
+test "Message.Notification - random field order" {
+    const msg: ExampleMessage = .{ .notification = .{ .params = .exit } };
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" }");
+    try testMessage(msg, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessage(msg, "{ \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessage(msg, "{ \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessage(msg, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Notification - invalid 'params' field" {
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": {}       }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"params\": {}       , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": {}       }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"params\": {}       , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": {}       , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": {}       , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Notification - missing 'params' field" {
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\"                    , \"method\": \"textDocument/completion\" }");
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"textDocument/completion\" , \"jsonrpc\": \"2.0\"                    }");
+}
+
+test "Message.Notification - missing 'jsonrpc' field" {
+    try testMessageExpectError(error.MissingField, "{ \"method\": \"shutdown\" , \"params\": null         }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null         , \"method\": \"shutdown\" }");
+}
+
+test "Message.Notification - missing 'method' field" {
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessageExpectError(error.MissingField, "{ \"params\": null     , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Notification - unexpected 'id' field" {
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"method\": \"exit\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"params\": null     , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"id\": 5            , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     , \"id\": 5            }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"id\": 5            , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" , \"id\": 5            }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"id\": 5            , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"id\": 5            , \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"id\": 5            , \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"id\": 5            , \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"id\": 5            , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     , \"id\": 5            }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"id\": 5            , \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"id\": 5            , \"params\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"params\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"id\": 5            }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"id\": 5            , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"method\": \"exit\" , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Notification - unexpected 'result' field" {
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"result\": 5        , \"method\": \"exit\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"result\": 5        , \"params\": null     , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"result\": 5        , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     , \"result\": 5        }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"result\": 5        , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" , \"result\": 5        }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"result\": 5        , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"result\": 5        , \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"result\": 5        , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"result\": 5        , \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"result\": 5        , \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"result\": 5        , \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"result\": 5        , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     , \"result\": 5        }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"result\": 5        , \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"result\": 5        , \"params\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" , \"result\": 5        }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"params\": null     , \"result\": 5        , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"result\": 5        , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"result\": 5        }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"result\": 5        , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"result\": 5        , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"result\": 5        }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"method\": \"exit\" , \"result\": 5        , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Notification - unexpected 'error' field" {
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"method\": \"exit\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"params\": null     , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"params\": null     , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"params\": null     , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"params\": null     }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"params\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"params\": null     , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"method\": \"exit\" , \"params\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"method\": \"exit\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"method\": \"exit\" , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessageExpectError(error.UnexpectedToken, "{ \"params\": null     , \"method\": \"exit\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Response - with 'result' field" {
+    const msg: ExampleMessage = .{
         .response = .{
             .id = .{ .number = 5 },
             .result_or_error = .{ .result = .null },
         },
     };
-    try testMessage(msg_result, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"result\": null     }");
-    try testMessage(msg_result, "{ \"jsonrpc\": \"2.0\" , \"result\": null     , \"id\": 5            }");
-    try testMessage(msg_result, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"result\": null     }");
-    try testMessage(msg_result, "{ \"id\": 5            , \"result\": null     , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg_result, "{ \"result\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
-    try testMessage(msg_result, "{ \"result\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"result\": null     }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"result\": null     , \"id\": 5            }");
+    try testMessage(msg, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"result\": null     }");
+    try testMessage(msg, "{ \"id\": 5            , \"result\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"result\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
+    try testMessage(msg, "{ \"result\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+}
 
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+test "Message.Response - with 'error' field" {
+    const msg: ExampleMessage = .{
+        .response = .{
+            .id = .{ .number = 5 },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(0), .message = "" } },
+        },
+    };
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            }");
+    try testMessage(msg, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+}
 
-    // missing "result" field
+test "Message.Response - no 'id' field with 'result' field" {
+    const msg: ExampleMessage = .{
+        .response = .{
+            .id = null,
+            .result_or_error = .{ .result = .null },
+        },
+    };
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"result\": null    }");
+    try testMessage(msg, "{ \"result\": null     , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Response - no 'id' field with 'error' field" {
+    const msg: ExampleMessage = .{
+        .response = .{
+            .id = null,
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(0), .message = "" } },
+        },
+    };
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\"                        , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\"                        }");
+}
+
+test "Message.Response - missing 'result' field" {
     try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            }");
     try testMessageExpectError(error.MissingField, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+    try testMessageExpectError(error.MissingField, "{ \"jsonrpc\": \"2.0\" }");
+}
 
-    // "result" is null with "error" field
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     }");
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"result\": null     , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"result\": null     }");
-    try testMessage(msg_error, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"result\": null     , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"result\": null     }");
-    try testMessage(msg_error, "{ \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg_error, "{ \"result\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"result\": null     , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"result\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
-    try testMessage(msg_error, "{ \"result\": null     , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg_error, "{ \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"id\": 5            , \"result\": null     }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"result\": null     , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"jsonrpc\": \"2.0\" , \"result\": null     }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"result\": null     , \"jsonrpc\": \"2.0\" }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
-    try testMessage(msg_error, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+test "Message.Response - 'result' is null with 'error' field" {
+    const msg: ExampleMessage = .{
+        .response = .{
+            .id = .{ .number = 5 },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(0), .message = "" } },
+        },
+    };
 
-    // "result" and "error" field
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"result\": null     , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"result\": null     }");
+    try testMessage(msg, "{ \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"id\": 5            }");
+    try testMessage(msg, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"id\": 5            , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     }");
+    try testMessage(msg, "{ \"id\": 5            , \"result\": null     , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"id\": 5            , \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"result\": null     }");
+    try testMessage(msg, "{ \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"result\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"result\": null     , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            }");
+    try testMessage(msg, "{ \"result\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" , \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessage(msg, "{ \"result\": null     , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
+    try testMessage(msg, "{ \"result\": null     , \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"id\": 5            , \"result\": null     }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"jsonrpc\": \"2.0\" , \"result\": null     , \"id\": 5            }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"jsonrpc\": \"2.0\" , \"result\": null     }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"id\": 5            , \"result\": null     , \"jsonrpc\": \"2.0\" }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"jsonrpc\": \"2.0\" , \"id\": 5            }");
+    try testMessage(msg, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null     , \"id\": 5            , \"jsonrpc\": \"2.0\" }");
+}
+
+test "Message.Response - 'result' and 'error' field" {
     try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"result\": true     , \"error\": {\"code\": 0, \"message\": \"\"} }");
     try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": true     }");
     try testMessageExpectError(error.UnexpectedToken, "{ \"jsonrpc\": \"2.0\" , \"result\": true     , \"id\": 5            , \"error\": {\"code\": 0, \"message\": \"\"} }");
