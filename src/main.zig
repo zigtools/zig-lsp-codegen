@@ -451,6 +451,7 @@ fn writeEnumeration(writer: anytype, meta_model: MetaModel, enumeration: MetaMod
         .string => {
             try writer.print(
                 \\{s}: []const u8,
+                \\pub const eql = parser.EnumCustomStringValues(@This(), {1}).eql;
                 \\pub const jsonParse = parser.EnumCustomStringValues(@This(), {1}).jsonParse;
                 \\pub const jsonParseFromValue = parser.EnumCustomStringValues(@This(), {1}).jsonParseFromValue;
                 \\pub const jsonStringify = parser.EnumCustomStringValues(@This(), {1}).jsonStringify;

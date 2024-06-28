@@ -151,6 +151,11 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
         pub fn eql(a: T, b: T) bool {
             const tag_a = std.meta.activeTag(a);
             const tag_b = std.meta.activeTag(b);
+
+            const is_a_empty = (contains_empty_enum and a == .empty) or (tag_a == special_value_indicator and @field(a, special_value_field_name).len == 0);
+            const is_b_empty = (contains_empty_enum and b == .empty) or (tag_b == special_value_indicator and @field(b, special_value_field_name).len == 0);
+            if (is_a_empty and is_b_empty) return true;
+
             if (tag_a != tag_b) return false;
 
             if (tag_a == special_value_indicator) {
@@ -192,6 +197,7 @@ test EnumCustomStringValues {
             bar,
             baz,
             custom_value: []const u8,
+            pub const eql = EnumCustomStringValues(@This(), false).eql;
             pub const jsonParse = EnumCustomStringValues(@This(), false).jsonParse;
             pub const jsonParseFromValue = EnumCustomStringValues(@This(), false).jsonParseFromValue;
             pub const jsonStringify = EnumCustomStringValues(@This(), false).jsonStringify;
@@ -218,23 +224,50 @@ test EnumCustomStringValues {
             baz,
             empty,
             unknown_value: []const u8,
+            pub const eql = EnumCustomStringValues(@This(), true).eql;
             pub const jsonParse = EnumCustomStringValues(@This(), true).jsonParse;
             pub const jsonParseFromValue = EnumCustomStringValues(@This(), true).jsonParseFromValue;
             pub const jsonStringify = EnumCustomStringValues(@This(), true).jsonStringify;
         };
 
-        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(E{ .foo = {} }, .{})});
-        try std.testing.expectFmt("\"bar\"", "{}", .{std.json.fmt(E{ .bar = {} }, .{})});
-        try std.testing.expectFmt("\"baz\"", "{}", .{std.json.fmt(E{ .baz = {} }, .{})});
-        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(E{ .empty = {} }, .{})});
-        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .unknown_value = "boo" }, .{})});
+        const foo: E = .foo;
+        const bar: E = .bar;
+        const baz: E = .baz;
+        const empty: E = .empty;
+        const custom_empty: E = .{ .unknown_value = "" };
+        const boo: E = .{ .unknown_value = "boo" };
+        const zoo: E = .{ .unknown_value = "zoo" };
 
-        try expectParseEqual(E, E.foo, "\"foo\"");
-        try expectParseEqual(E, E.bar, "\"bar\"");
-        try expectParseEqual(E, E.baz, "\"baz\"");
-        try expectParseEqual(E, E.empty, "\"\"");
+        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(foo, .{})});
+        try std.testing.expectFmt("\"bar\"", "{}", .{std.json.fmt(bar, .{})});
+        try std.testing.expectFmt("\"baz\"", "{}", .{std.json.fmt(baz, .{})});
+        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(empty, .{})});
+        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(custom_empty, .{})});
+        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(boo, .{})});
+        try std.testing.expectFmt("\"zoo\"", "{}", .{std.json.fmt(zoo, .{})});
 
-        try expectParseEqual(E, E{ .unknown_value = "boo" }, "\"boo\"");
+        try expectParseEqual(E, foo, "\"foo\"");
+        try expectParseEqual(E, bar, "\"bar\"");
+        try expectParseEqual(E, baz, "\"baz\"");
+        try expectParseEqual(E, empty, "\"\"");
+        try expectParseEqual(E, boo, "\"boo\"");
+        try expectParseEqual(E, zoo, "\"zoo\"");
+
+        try std.testing.expect(foo.eql(foo));
+        try std.testing.expect(!foo.eql(bar));
+        try std.testing.expect(foo.eql(foo));
+        try std.testing.expect(!foo.eql(zoo));
+
+        try std.testing.expect(empty.eql(empty));
+        try std.testing.expect(!empty.eql(foo));
+        try std.testing.expect(!empty.eql(boo));
+
+        try std.testing.expect(custom_empty.eql(custom_empty));
+        try std.testing.expect(!custom_empty.eql(foo));
+        try std.testing.expect(!custom_empty.eql(boo));
+
+        try std.testing.expect(empty.eql(custom_empty));
+        try std.testing.expect(custom_empty.eql(empty));
     }
 
     {
@@ -242,19 +275,37 @@ test EnumCustomStringValues {
             foo,
             empty,
             custom_value: []const u8,
+            pub const eql = EnumCustomStringValues(@This(), false).eql;
             pub const jsonParse = EnumCustomStringValues(@This(), false).jsonParse;
             pub const jsonParseFromValue = EnumCustomStringValues(@This(), false).jsonParseFromValue;
             pub const jsonStringify = EnumCustomStringValues(@This(), false).jsonStringify;
         };
 
-        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(E{ .foo = {} }, .{})});
-        try std.testing.expectFmt("\"empty\"", "{}", .{std.json.fmt(E{ .empty = {} }, .{})});
-        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .custom_value = "boo" }, .{})});
+        const foo: E = .foo;
+        const empty: E = .empty;
+        const true_empty: E = .{ .custom_value = "" };
+        const boo: E = .{ .custom_value = "boo" };
 
-        try expectParseEqual(E, E.foo, "\"foo\"");
-        try expectParseEqual(E, E.empty, "\"empty\"");
+        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(foo, .{})});
+        try std.testing.expectFmt("\"empty\"", "{}", .{std.json.fmt(empty, .{})});
+        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(true_empty, .{})});
+        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(boo, .{})});
 
-        try expectParseEqual(E, E{ .custom_value = "boo" }, "\"boo\"");
+        try expectParseEqual(E, foo, "\"foo\"");
+        try expectParseEqual(E, empty, "\"empty\"");
+        try expectParseEqual(E, true_empty, "\"\"");
+        try expectParseEqual(E, boo, "\"boo\"");
+
+        try std.testing.expect(empty.eql(empty));
+        try std.testing.expect(!empty.eql(foo));
+        try std.testing.expect(!empty.eql(boo));
+
+        try std.testing.expect(true_empty.eql(true_empty));
+        try std.testing.expect(!true_empty.eql(foo));
+        try std.testing.expect(!true_empty.eql(boo));
+
+        try std.testing.expect(!true_empty.eql(empty));
+        try std.testing.expect(!empty.eql(true_empty));
     }
 }
 
