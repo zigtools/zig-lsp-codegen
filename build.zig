@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
     // -------------------------------------------------------------------------
 
     const exe = b.addExecutable(.{
-        .name = "zig-lsp-codegen",
+        .name = "lsp-codegen",
         .root_source_file = b.path("src/main.zig"),
         .target = b.graph.host,
     });
