@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    - master
+    branches:
+      - main
   pull_request:
-    - master
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -30,18 +32,23 @@ jobs:
           version: ${{ matrix.zig-version }}
 
       - name: Setup kcov
+        if: github.repository_owner == 'zigtools' && matrix.os == 'ubuntu-latest' && matrix.zig-version == 'master'
         run: |
           wget https://github.com/SimonKagstrom/kcov/releases/download/v42/kcov-amd64.tar.gz
           sudo tar xf kcov-amd64.tar.gz -C /
 
-      - name: Print Zig Environment 
+      - name: Print Zig Environment
         run: zig env
 
       - name: Check Formatting
         run: zig fmt --ast-check --check src
 
       - name: Run Tests
-        run: zig build test coverage --summary all
+        run: zig build test --summary all
+
+      - name: Collect Coverage
+        if: github.repository_owner == 'zigtools' && matrix.os == 'ubuntu-latest' && matrix.zig-version == 'master'
+        run: zig build coverage --summary all
 
       - name: Upload coverage reports to Codecov
         if: github.repository_owner == 'zigtools' && matrix.os == 'ubuntu-latest' && matrix.zig-version == 'master'
