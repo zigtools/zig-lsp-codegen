@@ -1035,7 +1035,6 @@ pub fn Message(
             var jsonrpc: ?[]const u8 = null;
             var id: ?JsonRPCMessage.ID = null;
             var saw_result_field: bool = false;
-            var saw_error_field: bool = false;
             var state: ParserState = .unknown;
 
             while (true) {
@@ -1117,10 +1116,6 @@ pub fn Message(
                         .method, .params => return error.UnexpectedToken, // the "result" field indicates a response which can't have the "method" or "params" field
                         .result => return error.DuplicateField,
                         .@"error" => {
-                            if (saw_error_field)
-                                return error.DuplicateField;
-                            saw_error_field = true;
-
                             // Allows { "result": null, "error": {...} }
                             if (result != .null)
                                 return error.UnexpectedToken;
@@ -1485,7 +1480,17 @@ test "Message - duplicate fields" {
     try testMessageExpectError(error.DuplicateField, "{ \"method\": \"shutdown\" , \"method\": \"shutdown\" }");
     try testMessageExpectError(error.DuplicateField, "{ \"params\": null         , \"params\": null         }");
     try testMessageExpectError(error.DuplicateField, "{ \"result\": null         , \"result\": null         }");
-    try testMessageExpectError(error.DuplicateField, "{ \"error\": \"error\": {\"code\": 0, \"message\": \"\"} , \"error\": \"error\": {\"code\": 0, \"message\": \"\"} }");
+    try testMessageExpectError(error.DuplicateField, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"error\": {\"code\": 0, \"message\": \"\"} }");
+
+    try testMessageExpectError(error.DuplicateField, "{ \"error\": {\"code\": 0, \"message\": \"\"} , \"result\": null , \"result\": null }");
+    try testMessageExpectError(error.DuplicateField, "{ \"result\": null , \"error\": {\"code\": 0, \"message\": \"\"} , \"error\": {\"code\": 0, \"message\": \"\"}}");
+
+    try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"1.0\", \"method\": \"shutdown\" , \"params\": null, \"method\": \"foo\" }");
+    try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"1.0\", \"method\": \"shutdown\" , \"params\": null, \"params\": null    }");
+    try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"1.0\", \"method\": \"exit\"     , \"params\": null, \"method\": \"foo\" }");
+    try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"1.0\", \"method\": \"exit\"     , \"params\": null, \"params\": null    }");
+    try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"1.0\", \"method\": \"foo\"      , \"params\": null, \"method\": \"foo\" }");
+    try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"1.0\", \"method\": \"foo\"      , \"params\": null, \"params\": null    }");
 }
 
 test "Message - ignore_unknown_fields" {
