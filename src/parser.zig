@@ -29,6 +29,7 @@ pub fn staticStringMapInitComptime(comptime T: type, comptime kvs_list: anytype)
 pub fn UnionParser(comptime T: type) type {
     return struct {
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
+            // TODO this implementation is incredibly naive, surely it can be improved somewhat
             const json_value = try std.json.Value.jsonParse(allocator, source, options);
             return try jsonParseFromValue(allocator, json_value, options);
         }
@@ -50,9 +51,82 @@ pub fn UnionParser(comptime T: type) type {
     };
 }
 
+test UnionParser {
+    {
+        const U = union(enum) {
+            number: u32,
+            string: []const u8,
+            pub const jsonParse = UnionParser(@This()).jsonParse;
+            pub const jsonParseFromValue = UnionParser(@This()).jsonParseFromValue;
+        };
+
+        try expectParseEqual(U, U{ .number = 3 }, "3");
+        try expectParseEqual(U, U{ .string = "foo" }, "\"foo\"");
+        try expectParseEqual(U, error.UnexpectedToken, "true");
+        try expectParseEqual(U, error.UnexpectedToken, "null");
+    }
+
+    {
+        // same as above but the fields are in reverse order
+        const U = union(enum) {
+            string: []const u8,
+            number: u32,
+            pub const jsonParse = UnionParser(@This()).jsonParse;
+            pub const jsonParseFromValue = UnionParser(@This()).jsonParseFromValue;
+        };
+
+        try expectParseEqual(U, U{ .number = 3 }, "3");
+        try expectParseEqual(U, U{ .string = "foo" }, "\"foo\"");
+        try expectParseEqual(U, error.UnexpectedToken, "true");
+        try expectParseEqual(U, error.UnexpectedToken, "null");
+    }
+
+    {
+        const U = union(enum) {
+            foo: struct {},
+            bar: struct { member: u32 },
+            pub const jsonParse = UnionParser(@This()).jsonParse;
+            pub const jsonParseFromValue = UnionParser(@This()).jsonParseFromValue;
+        };
+
+        try expectParseEqual(U, U{ .foo = .{} }, "{}");
+        try expectParseEqual(U, U{ .bar = .{ .member = 5 } }, "{\"member\": 5}");
+        try expectParseEqual(U, error.UnexpectedToken, "true");
+        try expectParseEqual(U, error.UnexpectedToken, "null");
+    }
+
+    {
+        // same as above but the fields are in reverse order
+        const U = union(enum) {
+            bar: struct { member: u32 },
+            foo: struct {},
+            pub const jsonParse = UnionParser(@This()).jsonParse;
+            pub const jsonParseFromValue = UnionParser(@This()).jsonParseFromValue;
+        };
+
+        try expectParseEqual(U, U{ .foo = .{} }, "{}");
+        try expectParseEqual(U, U{ .bar = .{ .member = 5 } }, "{\"member\": 5}");
+        try expectParseEqual(U, error.UnexpectedToken, "{\"mumber\": 5}");
+        try expectParseEqual(U, error.UnexpectedToken, "true");
+        try expectParseEqual(U, error.UnexpectedToken, "null");
+    }
+}
+
+test "UnionParser.jsonStringify" {
+    const U = union(enum) {
+        number: u32,
+        string: []const u8,
+        pub const jsonStringify = UnionParser(@This()).jsonStringify;
+    };
+
+    try std.testing.expectFmt("5", "{}", .{std.json.fmt(U{ .number = 5 }, .{})});
+    try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(U{ .string = "foo" }, .{})});
+}
+
 pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bool) type {
     return struct {
         comptime {
+            if (contains_empty_enum) std.debug.assert(@hasField(T, "empty"));
             std.debug.assert(@hasField(T, "custom_value") or @hasField(T, "unknown_value"));
         }
         const special_value_indicator: std.meta.Tag(T) = if (@hasField(T, "custom_value")) T.custom_value else T.unknown_value;
@@ -112,10 +186,6 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
 }
 
 test EnumCustomStringValues {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
     {
         const E = union(enum) {
             foo,
@@ -123,6 +193,7 @@ test EnumCustomStringValues {
             baz,
             custom_value: []const u8,
             pub const jsonParse = EnumCustomStringValues(@This(), false).jsonParse;
+            pub const jsonParseFromValue = EnumCustomStringValues(@This(), false).jsonParseFromValue;
             pub const jsonStringify = EnumCustomStringValues(@This(), false).jsonStringify;
         };
 
@@ -132,21 +203,12 @@ test EnumCustomStringValues {
         try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(E{ .custom_value = "" }, .{})});
         try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .custom_value = "boo" }, .{})});
 
-        try std.testing.expectEqual(E.foo, try std.json.parseFromSliceLeaky(E, arena, "\"foo\"", .{}));
-        try std.testing.expectEqual(E.bar, try std.json.parseFromSliceLeaky(E, arena, "\"bar\"", .{}));
-        try std.testing.expectEqual(E.baz, try std.json.parseFromSliceLeaky(E, arena, "\"baz\"", .{}));
+        try expectParseEqual(E, E.foo, "\"foo\"");
+        try expectParseEqual(E, E.bar, "\"bar\"");
+        try expectParseEqual(E, E.baz, "\"baz\"");
 
-        {
-            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"boo\"", .{});
-            try std.testing.expectEqual(E.custom_value, std.meta.activeTag(e));
-            try std.testing.expectEqualStrings("boo", e.custom_value);
-        }
-
-        {
-            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"\"", .{});
-            try std.testing.expectEqual(E.custom_value, std.meta.activeTag(e));
-            try std.testing.expectEqualStrings("", e.custom_value);
-        }
+        try expectParseEqual(E, E{ .custom_value = "boo" }, "\"boo\"");
+        try expectParseEqual(E, E{ .custom_value = "" }, "\"\"");
     }
 
     {
@@ -157,6 +219,7 @@ test EnumCustomStringValues {
             empty,
             unknown_value: []const u8,
             pub const jsonParse = EnumCustomStringValues(@This(), true).jsonParse;
+            pub const jsonParseFromValue = EnumCustomStringValues(@This(), true).jsonParseFromValue;
             pub const jsonStringify = EnumCustomStringValues(@This(), true).jsonStringify;
         };
 
@@ -166,16 +229,12 @@ test EnumCustomStringValues {
         try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(E{ .empty = {} }, .{})});
         try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .unknown_value = "boo" }, .{})});
 
-        try std.testing.expectEqual(E.foo, try std.json.parseFromSliceLeaky(E, arena, "\"foo\"", .{}));
-        try std.testing.expectEqual(E.bar, try std.json.parseFromSliceLeaky(E, arena, "\"bar\"", .{}));
-        try std.testing.expectEqual(E.baz, try std.json.parseFromSliceLeaky(E, arena, "\"baz\"", .{}));
-        try std.testing.expectEqual(E.empty, try std.json.parseFromSliceLeaky(E, arena, "\"\"", .{}));
+        try expectParseEqual(E, E.foo, "\"foo\"");
+        try expectParseEqual(E, E.bar, "\"bar\"");
+        try expectParseEqual(E, E.baz, "\"baz\"");
+        try expectParseEqual(E, E.empty, "\"\"");
 
-        {
-            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"boo\"", .{});
-            try std.testing.expectEqual(E.unknown_value, std.meta.activeTag(e));
-            try std.testing.expectEqualStrings("boo", e.unknown_value);
-        }
+        try expectParseEqual(E, E{ .unknown_value = "boo" }, "\"boo\"");
     }
 
     {
@@ -184,6 +243,7 @@ test EnumCustomStringValues {
             empty,
             custom_value: []const u8,
             pub const jsonParse = EnumCustomStringValues(@This(), false).jsonParse;
+            pub const jsonParseFromValue = EnumCustomStringValues(@This(), false).jsonParseFromValue;
             pub const jsonStringify = EnumCustomStringValues(@This(), false).jsonStringify;
         };
 
@@ -191,14 +251,10 @@ test EnumCustomStringValues {
         try std.testing.expectFmt("\"empty\"", "{}", .{std.json.fmt(E{ .empty = {} }, .{})});
         try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .custom_value = "boo" }, .{})});
 
-        try std.testing.expectEqual(E.foo, try std.json.parseFromSliceLeaky(E, arena, "\"foo\"", .{}));
-        try std.testing.expectEqual(E.empty, try std.json.parseFromSliceLeaky(E, arena, "\"empty\"", .{}));
+        try expectParseEqual(E, E.foo, "\"foo\"");
+        try expectParseEqual(E, E.empty, "\"empty\"");
 
-        {
-            const e: E = try std.json.parseFromSliceLeaky(E, arena, "\"boo\"", .{});
-            try std.testing.expectEqual(E.custom_value, std.meta.activeTag(e));
-            try std.testing.expectEqualStrings("boo", e.custom_value);
-        }
+        try expectParseEqual(E, E{ .custom_value = "boo" }, "\"boo\"");
     }
 }
 
@@ -248,4 +304,27 @@ test EnumStringifyAsInt {
         try std.testing.expectFmt("4", "{}", .{std.json.fmt(E.baz, .{})});
         try std.testing.expectFmt("7", "{}", .{std.json.fmt(@as(E, @enumFromInt(7)), .{})});
     }
+}
+
+fn expectParseEqual(comptime T: type, comptime expected: anytype, s: []const u8) !void {
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    if (@typeInfo(@TypeOf(expected)) != .ErrorSet) {
+        const actual_from_slice = try std.json.parseFromSliceLeaky(T, arena, s, .{});
+        try std.testing.expectEqualDeep(@as(T, expected), actual_from_slice);
+
+        const value = try std.json.parseFromSliceLeaky(std.json.Value, arena, s, .{});
+        const actual_from_value = std.json.parseFromValueLeaky(T, arena, value, .{});
+        try std.testing.expectEqualDeep(@as(T, expected), actual_from_value);
+    } else {
+        try std.testing.expectError(expected, std.json.parseFromSliceLeaky(T, arena, s, .{}));
+        const value = try std.json.parseFromSliceLeaky(std.json.Value, arena, s, .{});
+        try std.testing.expectError(expected, std.json.parseFromValueLeaky(T, arena, value, .{}));
+    }
+}
+
+comptime {
+    std.testing.refAllDeclsRecursive(@This());
 }

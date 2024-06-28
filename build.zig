@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
     // --------------------------------- Tests ---------------------------------
 
     // This can be simplified with https://github.com/ziglang/zig/pull/20388
-    const tests = b.addTest(.{
+    const lsp_tests = b.addTest(.{
         .root_source_file = b.path("src/lsp.zig"),
         .target = target,
         .optimize = optimize,
@@ -64,9 +64,20 @@ pub fn build(b: *std.Build) void {
         .use_lld = use_llvm,
         .use_llvm = use_llvm,
     });
-    tests.root_module.addImport("parser", lsp_parser_module);
-    tests.root_module.addImport("types", lsp_types_module);
+    lsp_tests.root_module.addImport("parser", lsp_parser_module);
+    lsp_tests.root_module.addImport("types", lsp_types_module);
+
+    const lsp_parser_tests = b.addTest(.{
+        .name = "test parser",
+        .root_source_file = b.path("src/parser.zig"),
+        .target = target,
+        .optimize = optimize,
+        .filters = test_filters,
+        .use_lld = use_llvm,
+        .use_llvm = use_llvm,
+    });
 
     const test_step = b.step("test", "Run all the tests");
-    test_step.dependOn(&b.addRunArtifact(tests).step);
+    test_step.dependOn(&b.addRunArtifact(lsp_tests).step);
+    test_step.dependOn(&b.addRunArtifact(lsp_parser_tests).step);
 }
