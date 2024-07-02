@@ -1272,7 +1272,7 @@ pub fn Message(
 
                     const parse_func = struct {
                         fn parse(params_source: Source, allocator: std.mem.Allocator, options: std.json.ParseOptions) !Params {
-                            if (field.type == void or field.type == ?void) {
+                            if (field.type == void) {
                                 switch (Source) {
                                     std.json.Value => if (params_source != .null) {
                                         return error.UnexpectedToken;
@@ -1321,17 +1321,14 @@ pub fn Message(
                     try stream.objectField("method");
                     try stream.write(method);
 
-                    switch (@TypeOf(params)) {
-                        ?void, void => {
-                            if (stream.options.emit_null_optional_fields) {
-                                try stream.objectField("params");
-                                try stream.write(null);
-                            }
-                        },
-                        else => {
+                    if (@TypeOf(params) == void) {
+                        if (stream.options.emit_null_optional_fields) {
                             try stream.objectField("params");
-                            try stream.write(params);
-                        },
+                            try stream.write(null);
+                        }
+                    } else {
+                        try stream.objectField("params");
+                        try stream.write(params);
                     }
                 },
             }
