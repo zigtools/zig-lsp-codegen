@@ -985,7 +985,7 @@ pub fn Message(comptime message_options: MessageOptions) type {
             source: std.json.Value,
             options: std.json.ParseOptions,
         ) std.json.ParseFromValueError!Msg {
-            const message = try std.json.innerParseFromValue(JsonRPCMessage, allocator, source, options);
+            const message = try JsonRPCMessage.jsonParseFromValue(allocator, source, options);
             return try fromJsonRPCMessage(message, allocator, options);
         }
 
@@ -1156,7 +1156,7 @@ pub fn Message(comptime message_options: MessageOptions) type {
                                 try source.skipValue();
                                 continue;
                             },
-                            .result => .{ .response_result = try std.json.innerParse(std.json.Value, allocator, &source, options) },
+                            .result => .{ .response_result = try std.json.Value.jsonParse(allocator, &source, options) },
                             .@"error" => .{ .response_error = try std.json.innerParse(JsonRPCMessage.Response.Error, allocator, &source, options) },
                         };
                         continue;
@@ -1290,7 +1290,7 @@ pub fn Message(comptime message_options: MessageOptions) type {
                                 return @unionInit(Params, field.name, if (field.type == void) {} else null);
                             }
                             const params = switch (Source) {
-                                std.json.Value => try std.json.parseFromValueLeaky(field.type, allocator, params_source, options),
+                                std.json.Value => try std.json.innerParseFromValue(field.type, allocator, params_source, options),
                                 else => try std.json.innerParse(field.type, allocator, params_source, options),
                             };
                             return @unionInit(Params, field.name, params);
