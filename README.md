@@ -13,7 +13,7 @@ Generates `std.json` compatible Zig code based on the official [LSP MetaModel](h
 # Initialize a `zig build` project if you haven't already
 zig init
 # Add the `lsp-codegen` package to your `build.zig.zon`
-zig fetch --save=lsp-codegen git+https://github.com/zigtools/zig-lsp-codegen.git#<git-commit-hash>
+zig fetch --save git+https://github.com/zigtools/zig-lsp-codegen.git
 ```
 
 You can then import `lsp-codegen` in your `build.zig` with:
