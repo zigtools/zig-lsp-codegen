@@ -828,7 +828,7 @@ pub const MethodWithParams = struct {
     params: ?std.json.Value,
 };
 
-pub fn Message(
+pub const MessageOptions = struct {
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a request message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
@@ -849,7 +849,7 @@ pub fn Message(
     ///     other: MethodWithParams,
     /// }
     /// ```
-    comptime RequestParams: type,
+    RequestParams: type,
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a notification message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
@@ -870,9 +870,11 @@ pub fn Message(
     ///     other: MethodWithParams,
     /// }
     /// ```
-    comptime NotificationParams: type,
-) type {
-    // TODO validate RequestParams and NotificationParams
+    NotificationParams: type,
+};
+
+pub fn Message(comptime message_options: MessageOptions) type {
+    // TODO validate `message_options.RequestParams` and `message_options.NotificationParams`
     // This level of comptime should be illegal...
     return union(enum) {
         request: Request,
@@ -886,7 +888,7 @@ pub fn Message(
             id: JsonRPCMessage.ID,
             params: Params,
 
-            pub const Params = RequestParams;
+            pub const Params = message_options.RequestParams;
 
             pub const jsonParse = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
             pub const jsonParseFromValue = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
@@ -910,7 +912,7 @@ pub fn Message(
             comptime jsonrpc: []const u8 = "2.0",
             params: Params,
 
-            pub const Params = NotificationParams;
+            pub const Params = message_options.NotificationParams;
 
             pub const jsonParse = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
             pub const jsonParseFromValue = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
@@ -930,8 +932,8 @@ pub fn Message(
         pub fn fromJsonRPCMessage(message: JsonRPCMessage, allocator: std.mem.Allocator, options: std.json.ParseOptions) std.json.ParseFromValueError!Msg {
             switch (message) {
                 .request => |item| {
-                    var params: RequestParams = undefined;
-                    if (methodToParamsParserMap(RequestParams, std.json.Value).get(item.method)) |parse| {
+                    var params: Request.Params = undefined;
+                    if (methodToParamsParserMap(Request.Params, std.json.Value).get(item.method)) |parse| {
                         params = parse(item.params orelse .null, allocator, options) catch |err|
                             return if (item.params == null) error.MissingField else err;
                     } else if (isNotificationMethod(item.method)) {
@@ -942,8 +944,8 @@ pub fn Message(
                     return .{ .request = .{ .id = item.id, .params = params } };
                 },
                 .notification => |item| {
-                    var params: NotificationParams = undefined;
-                    if (methodToParamsParserMap(NotificationParams, std.json.Value).get(item.method)) |parse| {
+                    var params: Notification.Params = undefined;
+                    if (methodToParamsParserMap(Notification.Params, std.json.Value).get(item.method)) |parse| {
                         params = parse(item.params orelse .null, allocator, options) catch |err|
                             return if (item.params == null) error.MissingField else err;
                     } else if (isRequestMethod(item.method)) {
@@ -996,6 +998,7 @@ pub fn Message(
         pub fn parseFromSlice(
             allocator: std.mem.Allocator,
             s: []const u8,
+            /// Only `std.json.ParseOptions.duplicate_field_behavior == .@"error"` is supported.
             options: std.json.ParseOptions,
         ) std.json.ParseError(std.json.Scanner)!std.json.Parsed(Msg) {
             var parsed: std.json.Parsed(Msg) = .{
@@ -1014,6 +1017,7 @@ pub fn Message(
         pub fn parseFromSliceLeaky(
             allocator: std.mem.Allocator,
             s: []const u8,
+            /// Only `std.json.ParseOptions.duplicate_field_behavior == .@"error"` is supported.
             param_options: std.json.ParseOptions,
         ) std.json.ParseError(std.json.Scanner)!Msg {
             std.debug.assert(param_options.duplicate_field_behavior == .@"error"); // any other behavior is unsupported
@@ -1225,9 +1229,9 @@ pub fn Message(
         ) std.json.ParseError(std.json.Scanner)!ParserState {
             std.debug.assert(options.duplicate_field_behavior == .@"error"); // any other behavior is unsupported
 
-            if (methodToParamsParserMap(RequestParams, @TypeOf(params_source)).get(method)) |parse| {
+            if (methodToParamsParserMap(Request.Params, @TypeOf(params_source)).get(method)) |parse| {
                 return .{ .request = try parse(params_source, allocator, options) };
-            } else if (methodToParamsParserMap(NotificationParams, @TypeOf(params_source)).get(method)) |parse| {
+            } else if (methodToParamsParserMap(Notification.Params, @TypeOf(params_source)).get(method)) |parse| {
                 return .{ .notification = try parse(params_source, allocator, options) };
             } else {
                 // TODO make it configurable if the params should be parsed
@@ -1244,18 +1248,18 @@ pub fn Message(
         }
 
         fn ParamsParserFunc(
-            /// Must be either `RequestParams` or `NotificationParams`.
+            /// Must be either `Request.Params` or `Notification.Params`.
             comptime Params: type,
             /// Must be either `*std.json.Scanner`, `*std.json.Reader` or `std.json.Value`.
             comptime Source: type,
         ) type {
-            comptime std.debug.assert(Params == RequestParams or Params == NotificationParams);
+            comptime std.debug.assert(Params == Request.Params or Params == Notification.Params);
             const Error = if (Source == std.json.Value) std.json.ParseFromValueError else std.json.ParseError(std.meta.Child(Source));
             return *const fn (params_source: Source, allocator: std.mem.Allocator, options: std.json.ParseOptions) Error!Params;
         }
 
         inline fn methodToParamsParserMap(
-            /// Must be either `RequestParams` or `NotificationParams`.
+            /// Must be either `Request.Params` or `Notification.Params`.
             comptime Params: type,
             /// Must be either `*std.json.Scanner`, `*std.json.Reader` or `std.json.Value`.
             comptime Source: type,
@@ -1302,7 +1306,7 @@ pub fn Message(
         }
 
         fn jsonStringifyParams(self: anytype, stream: anytype) @TypeOf(stream.*).Error!void {
-            std.debug.assert(@TypeOf(self) == RequestParams or @TypeOf(self) == NotificationParams);
+            std.debug.assert(@TypeOf(self) == Request.Params or @TypeOf(self) == Notification.Params);
 
             switch (self) {
                 .other => |method_with_params| {
@@ -1335,12 +1339,12 @@ pub fn Message(
         }
 
         const ParserState = union(enum) {
-            /// The `"method"` and `"params"` field has been encountered. The method is part of `RequestParams`.
-            request: RequestParams,
-            /// The `"method"` and `"params"` field has been encountered. The method is part of `NotificationParams`.
-            notification: NotificationParams,
+            /// The `"method"` and `"params"` field has been encountered. The method is part of `Request.Params`.
+            request: Request.Params,
+            /// The `"method"` and `"params"` field has been encountered. The method is part of `Notification.Params`.
+            notification: Notification.Params,
             /// The `"method"` field has been encountered and `"params"` field has been encountered.
-            /// The method is valid but not part of `RequestParams` nor `NotificationParams`.
+            /// The method is valid but not part of `Request.Params` nor `Notification.Params`.
             uninteresting_request_or_notification: MethodWithParams,
             /// Only the `"method"` field has been encountered.
             method: []const u8,
@@ -1404,7 +1408,10 @@ const ExampleNotificationMethods = union(enum) {
     other: MethodWithParams,
 };
 
-const ExampleMessage = Message(ExampleRequestMethods, ExampleNotificationMethods);
+const ExampleMessage = Message(.{
+    .RequestParams = ExampleRequestMethods,
+    .NotificationParams = ExampleNotificationMethods,
+});
 
 fn testMessage(message: ExampleMessage, json_message: []const u8) !void {
     try testMessageWithOptions(message, json_message, .{});
