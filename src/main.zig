@@ -8,6 +8,7 @@ pub fn main() !void {
     const gpa = general_purpose_allocator.allocator();
 
     var arg_it = try std.process.ArgIterator.initWithAllocator(gpa);
+    defer arg_it.deinit();
 
     _ = arg_it.skip(); // skip self exe
 
