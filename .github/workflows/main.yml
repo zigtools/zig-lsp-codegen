@@ -37,9 +37,6 @@ jobs:
           wget https://github.com/SimonKagstrom/kcov/releases/download/v42/kcov-amd64.tar.gz
           sudo tar xf kcov-amd64.tar.gz -C /
 
-      - name: Print Zig Environment
-        run: zig env
-
       - name: Check Formatting
         run: zig fmt --ast-check --check src
 
