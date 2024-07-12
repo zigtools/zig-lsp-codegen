@@ -936,6 +936,193 @@ pub const BaseProtocolHeader = struct {
     }
 };
 
+pub const Config = struct {
+    support_file_io: bool = true,
+    support_sockets: bool = false,
+
+    thread_safe_read: bool = false,
+    thread_safe_write: bool = !@import("builtin").single_threaded,
+    MutexType: ?type = null,
+};
+
+pub fn Transport(comptime config: Config) type {
+    std.debug.assert(config.support_file_io or config.support_sockets);
+    return struct {
+        impl: struct {
+            state: union(enum) {
+                stdio: if (config.support_file_io) struct { in: std.fs.File, out: std.fs.File } else void,
+                socket: if (config.support_sockets) struct {
+                    server: std.net.Server,
+                    connection: std.net.Server.Connection,
+                } else void,
+            },
+            /// Same as `std.io.BufferedReader` but doesn't store the underlying reader
+            buffered_reader: struct {
+                buf: [512]u8 = undefined,
+                start: usize = 0,
+                end: usize = 0,
+            } = .{},
+            in_mutex: @TypeOf(in_mutex_init) = in_mutex_init,
+            out_mutex: @TypeOf(out_mutex_init) = out_mutex_init,
+        },
+
+        // Is there any better name of this?
+        const Self = @This();
+
+        pub const ReadError = std.posix.ReadError || error{EndOfStream} || BaseProtocolHeader.ParseError;
+        pub const WriteError = std.posix.WriteError;
+
+        pub fn initStdio() Self {
+            return initFiles(std.io.getStdIn(), std.io.getStdOut());
+        }
+
+        pub fn initFiles(in: std.fs.File, out: std.fs.File) Self {
+            comptime std.debug.assert(config.support_file_io);
+            return .{ .impl = .{ .state = .{
+                .stdio = .{ .in = in, .out = out },
+            } } };
+        }
+
+        pub fn initSocket(address: std.net.Address, options: std.net.Address.ListenOptions) (std.net.Address.ListenError | std.net.Server.AcceptError)!Self {
+            comptime std.debug.assert(config.support_sockets);
+
+            var server = try address.listen(options);
+            const connection = try server.accept();
+            errdefer connection.stream.close();
+
+            return .{ .impl = .{ .state = .{
+                .socket = .{ .server = server, .connection = connection },
+            } } };
+        }
+
+        pub fn deinit(transport: *Self) void {
+            switch (transport.impl.state) {
+                .stdio => {
+                    if (!config.support_file_io) unreachable;
+                },
+                .socket => |*payload| {
+                    if (!config.support_sockets) unreachable;
+                    payload.connection.stream.close();
+                    payload.server.deinit();
+                },
+            }
+            transport.* = undefined;
+        }
+
+        pub fn any(transport: *Self) AnyTransport {
+            return .{
+                .impl = .{
+                    .transport = transport,
+                    .readJsonMessage = @ptrCast(&readJsonMessage),
+                    .writeJsonMessage = @ptrCast(&writeJsonMessage),
+                },
+            };
+        }
+
+        pub fn readJsonMessage(transport: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ReadError)![]u8 {
+            transport.impl.in_mutex.lock();
+            defer transport.impl.in_mutex.unlock();
+
+            // If any new readers are introduced, `ReadError` may need to be adjusted.
+            const any_reader = switch (transport.impl.state) {
+                .stdio => |payload| blk: {
+                    if (!config.support_file_io) unreachable;
+                    break :blk payload.in.reader().any();
+                },
+                .socket => |*payload| blk: {
+                    if (!config.support_sockets) unreachable;
+                    break :blk payload.connection.stream.reader().any();
+                },
+            };
+
+            var buffered_reader: std.io.BufferedReader(512, std.io.AnyReader) = .{
+                .unbuffered_reader = any_reader,
+                .buf = transport.impl.buffered_reader.buf,
+                .start = transport.impl.buffered_reader.start,
+                .end = transport.impl.buffered_reader.end,
+            };
+            defer transport.impl.buffered_reader = .{
+                .buf = buffered_reader.buf,
+                .start = buffered_reader.start,
+                .end = buffered_reader.end,
+            };
+
+            const header = BaseProtocolHeader.parse(buffered_reader.reader()) catch |err| return @as(ReadError, @errorCast(err));
+
+            const json_message = try allocator.alloc(u8, header.content_length);
+            errdefer allocator.free(json_message);
+
+            buffered_reader.reader().readNoEof(json_message) catch |err| return @as(ReadError, @errorCast(err));
+
+            return json_message;
+        }
+
+        pub fn writeJsonMessage(transport: *Self, json_message: []const u8) WriteError!void {
+            const header: BaseProtocolHeader = .{ .content_length = json_message.len };
+
+            var buffer: [64]u8 = undefined;
+            const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
+
+            var iovecs = [_]std.posix.iovec_const{
+                .{ .base = prefix.ptr, .len = prefix.len },
+                .{ .base = json_message.ptr, .len = json_message.len },
+            };
+
+            transport.impl.out_mutex.lock();
+            defer transport.impl.out_mutex.unlock();
+
+            switch (transport.impl.state) {
+                .stdio => |payload| {
+                    if (!config.support_file_io) unreachable;
+                    try payload.out.writevAll(&iovecs);
+                },
+                .socket => |*payload| {
+                    if (!config.support_sockets) unreachable;
+                    try payload.connection.stream.writevAll(&iovecs);
+                },
+            }
+        }
+
+        const in_mutex_init = if (config.MutexType) |T|
+            T{}
+        else if (config.thread_safe_read)
+            std.Thread.Mutex{}
+        else
+            DummyMutex{};
+
+        const out_mutex_init = if (config.MutexType) |T|
+            T{}
+        else if (config.thread_safe_write)
+            std.Thread.Mutex{}
+        else
+            DummyMutex{};
+
+        const DummyMutex = struct {
+            fn lock(_: *DummyMutex) void {}
+            fn unlock(_: *DummyMutex) void {}
+        };
+    };
+}
+
+pub const AnyTransport = struct {
+    impl: struct {
+        transport: *anyopaque,
+        readJsonMessage: *const fn (transport: *anyopaque, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ReadError)![]u8,
+        writeJsonMessage: *const fn (transport: *anyopaque, json_message: []const u8) WriteError!void,
+    },
+
+    pub const ReadError = std.posix.ReadError || error{EndOfStream} || BaseProtocolHeader.ParseError;
+    pub const WriteError = std.posix.WriteError;
+
+    pub fn readJsonMessage(transport: AnyTransport, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ReadError)![]u8 {
+        return try transport.impl.readJsonMessage(transport.impl.transport, allocator);
+    }
+
+    pub fn writeJsonMessage(transport: AnyTransport, json_message: []const u8) WriteError!void {
+        try transport.impl.writeJsonMessage(transport.impl.transport, json_message);
+    }
+};
+
 pub const MethodWithParams = struct {
     method: []const u8,
     /// The `std.json.Value` can only be `.null`, `.array` or `.object`.
