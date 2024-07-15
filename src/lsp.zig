@@ -820,6 +820,9 @@ pub const JsonRPCMessage = union(enum) {
     }
 };
 
+/// A minimal non-allocating parser for the LSP Base Protocol Header Part.
+///
+/// See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#headerPart
 pub const BaseProtocolHeader = struct {
     content_length: usize,
 
@@ -831,15 +834,21 @@ pub const BaseProtocolHeader = struct {
         OversizedMessage,
         /// The header field is longer than `max_header_length`. The ": " doesn't count towards the header field length.
         OversizedHeaderField,
+        /// The header is missing the mandatory `Content-Length` field.
         MissingContentLength,
+        /// The header field value of `Content-Length` is not a valid unsigned integer.
         InvalidContentLength,
+        /// The header is ill-formed.
         InvalidHeaderField,
     };
 
+    /// It is strongly recommended to provide a buffering reader because the parser has to read 1-byte at a time.
     pub inline fn parse(reader: anytype) (@TypeOf(reader).Error || ParseError)!BaseProtocolHeader {
         return @errorCast(parseAny(reader.any()));
     }
 
+    /// It is strongly recommended to provide a buffering reader because the parser has to read 1-byte at a time.
+    ///
     /// Type erased version of `parse`.
     pub fn parseAny(reader: std.io.AnyReader) (anyerror || ParseError)!BaseProtocolHeader {
         var content_length: ?usize = null;
@@ -891,17 +900,6 @@ pub const BaseProtocolHeader = struct {
         };
     }
 
-    pub fn format(
-        header: BaseProtocolHeader,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = options;
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, header);
-        try std.fmt.format(out_stream, "Content-Length: {d}\r\n\r\n", .{header.content_length});
-    }
-
     test parse {
         try expectParseError("", error.EndOfStream);
         try expectParseError("\n", error.InvalidHeaderField);
@@ -922,6 +920,23 @@ pub const BaseProtocolHeader = struct {
 
         try expectParse("content-type: whatever\r\nContent-Length: 666\r\n\r\n", .{ .content_length = 666 });
         try expectParse("Content-Type: impostor\r\ncontent-length: 42\r\n\r\n", .{ .content_length = 42 });
+    }
+
+    pub fn format(
+        header: BaseProtocolHeader,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        out_stream: anytype,
+    ) !void {
+        _ = options;
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, header);
+        try std.fmt.format(out_stream, "Content-Length: {d}\r\n\r\n", .{header.content_length});
+    }
+
+    test format {
+        try std.testing.expectFmt("Content-Length: 0\r\n\r\n", "{}", .{BaseProtocolHeader{ .content_length = 0 }});
+        try std.testing.expectFmt("Content-Length: 42\r\n\r\n", "{}", .{BaseProtocolHeader{ .content_length = 42 }});
+        try std.testing.expectFmt("Content-Length: 4294967295\r\n\r\n", "{}", .{BaseProtocolHeader{ .content_length = std.math.maxInt(u32) }});
     }
 
     fn expectParse(input: []const u8, expected_header: BaseProtocolHeader) !void {
