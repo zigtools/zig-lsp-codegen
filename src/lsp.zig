@@ -1111,7 +1111,7 @@ pub const ThreadSafeTransportConfig = struct {
     thread_safe_read: bool,
     /// Makes `writeJsonMessage` thread-safe.
     thread_safe_write: bool,
-    MutexType: ?type,
+    MutexType: ?type = null,
 };
 
 /// Wraps a non-thread-safe transport and makes it thread-safe.
