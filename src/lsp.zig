@@ -1023,7 +1023,7 @@ test TransportOverStdio {
     try std.testing.expectEqualStrings("\"hello from server\"", message_from_server);
 
     // Client -> Server
-    try client_transport.writeJsonMessage("\"hello from client\"");
+    try client_transport.any().writeJsonMessage("\"hello from client\"");
 
     // Server <- Client
     const message_from_client = try server_transport.readJsonMessage(std.testing.allocator);
@@ -1037,6 +1037,9 @@ test TransportOverStdio {
 
     try std.testing.expectError(error.EndOfStream, server_transport.readJsonMessage(std.testing.allocator));
     try std.testing.expectError(error.EndOfStream, client_transport.readJsonMessage(std.testing.allocator));
+
+    try std.testing.expectError(error.EndOfStream, server_transport.any().readJsonMessage(std.testing.allocator));
+    try std.testing.expectError(error.EndOfStream, client_transport.any().readJsonMessage(std.testing.allocator));
 }
 
 /// This implementation is totally untested and probably completely wrong. Who is going to use this anyway...
@@ -1102,15 +1105,19 @@ const TransportOverStream = struct {
     }
 };
 
+pub const ThreadSafeTransportConfig = struct {
+    ChildTransport: type,
+    /// Makes `readJsonMessage` thread-safe.
+    thread_safe_read: bool,
+    /// Makes `writeJsonMessage` thread-safe.
+    thread_safe_write: bool,
+    MutexType: ?type,
+};
+
 /// Wraps a non-thread-safe transport and makes it thread-safe.
-pub fn ThreadSafeTransport(
-    comptime ChildTransport: type,
-    comptime thread_safe_read: bool,
-    comptime thread_safe_write: bool,
-    comptime MutexType: ?type,
-) type {
+pub fn ThreadSafeTransport(config: ThreadSafeTransportConfig) type {
     return struct {
-        child_transport: ChildTransport,
+        child_transport: config.ChildTransport,
         in_mutex: @TypeOf(in_mutex_init) = in_mutex_init,
         out_mutex: @TypeOf(out_mutex_init) = out_mutex_init,
 
@@ -1139,16 +1146,16 @@ pub fn ThreadSafeTransport(
             return try transport.child_transport.writeJsonMessage(json_message);
         }
 
-        const in_mutex_init = if (MutexType) |T|
+        const in_mutex_init = if (config.MutexType) |T|
             T{}
-        else if (thread_safe_read)
+        else if (config.thread_safe_read)
             std.Thread.Mutex{}
         else
             DummyMutex{};
 
-        const out_mutex_init = if (MutexType) |T|
+        const out_mutex_init = if (config.MutexType) |T|
             T{}
-        else if (thread_safe_write)
+        else if (config.thread_safe_write)
             std.Thread.Mutex{}
         else
             DummyMutex{};
@@ -1160,6 +1167,7 @@ pub fn ThreadSafeTransport(
     };
 }
 
+/// A type-erased Transport.
 pub const AnyTransport = struct {
     impl: struct {
         transport: *anyopaque,
@@ -1187,7 +1195,7 @@ pub const MethodWithParams = struct {
     params: ?std.json.Value,
 };
 
-pub const MessageOptions = struct {
+pub const MessageConfig = struct {
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a request message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
@@ -1232,8 +1240,8 @@ pub const MessageOptions = struct {
     NotificationParams: type,
 };
 
-pub fn Message(comptime message_options: MessageOptions) type {
-    // TODO validate `message_options.RequestParams` and `message_options.NotificationParams`
+pub fn Message(comptime config: MessageConfig) type {
+    // TODO validate `config.RequestParams` and `config.NotificationParams`
     // This level of comptime should be illegal...
     return union(enum) {
         request: Request,
@@ -1247,7 +1255,7 @@ pub fn Message(comptime message_options: MessageOptions) type {
             id: JsonRPCMessage.ID,
             params: Params,
 
-            pub const Params = message_options.RequestParams;
+            pub const Params = config.RequestParams;
 
             pub const jsonParse = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
             pub const jsonParseFromValue = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
@@ -1271,7 +1279,7 @@ pub fn Message(comptime message_options: MessageOptions) type {
             comptime jsonrpc: []const u8 = "2.0",
             params: Params,
 
-            pub const Params = message_options.NotificationParams;
+            pub const Params = config.NotificationParams;
 
             pub const jsonParse = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
             pub const jsonParseFromValue = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
