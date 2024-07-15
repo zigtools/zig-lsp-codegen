@@ -1039,7 +1039,8 @@ test TransportOverStdio {
     try std.testing.expectError(error.EndOfStream, client_transport.readJsonMessage(std.testing.allocator));
 }
 
-pub const TransportOverStream = struct {
+/// This implementation is totally untested and probably completely wrong. Who is going to use this anyway...
+const TransportOverStream = struct {
     impl: struct {
         server: std.net.Server,
         connection: std.net.Server.Connection,
