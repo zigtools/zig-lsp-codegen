@@ -936,163 +936,202 @@ pub const BaseProtocolHeader = struct {
     }
 };
 
-pub const Config = struct {
-    support_file_io: bool = true,
-    support_sockets: bool = false,
+pub const TransportOverStdio = struct {
+    impl: struct {
+        in: std.io.BufferedReader(512, std.fs.File.Reader),
+        out: std.fs.File,
+    },
 
-    thread_safe_read: bool = false,
-    thread_safe_write: bool = !@import("builtin").single_threaded,
-    MutexType: ?type = null,
+    pub fn init(in: std.fs.File, out: std.fs.File) TransportOverStdio {
+        return .{ .impl = .{
+            .in = std.io.bufferedReaderSize(512, in.reader()),
+            .out = out,
+        } };
+    }
+
+    pub fn any(transport: *TransportOverStdio) AnyTransport {
+        return .{ .impl = .{
+            .transport = transport,
+            .readJsonMessage = @ptrCast(&readJsonMessage),
+            .writeJsonMessage = @ptrCast(&writeJsonMessage),
+        } };
+    }
+
+    pub fn readJsonMessage(transport: *TransportOverStdio, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
+        const reader = transport.impl.in.reader().any();
+
+        const header = BaseProtocolHeader.parseAny(reader) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
+
+        const json_message = try allocator.alloc(u8, header.content_length);
+        errdefer allocator.free(json_message);
+
+        reader.readNoEof(json_message) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
+
+        return json_message;
+    }
+
+    pub fn writeJsonMessage(transport: *TransportOverStdio, json_message: []const u8) AnyTransport.WriteError!void {
+        const header: BaseProtocolHeader = .{ .content_length = json_message.len };
+
+        var buffer: [64]u8 = undefined;
+        const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
+
+        var iovecs = [_]std.posix.iovec_const{
+            .{ .base = prefix.ptr, .len = prefix.len },
+            .{ .base = json_message.ptr, .len = json_message.len },
+        };
+
+        try transport.impl.out.writevAll(&iovecs);
+    }
 };
 
-pub fn Transport(comptime config: Config) type {
-    std.debug.assert(config.support_file_io or config.support_sockets);
+test TransportOverStdio {
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const send_to_client = try tmp_dir.dir.createFile("a", .{});
+    const send_to_server = try tmp_dir.dir.createFile("b", .{});
+
+    const receive_from_server = try tmp_dir.dir.openFile("a", .{});
+    const receive_from_client = try tmp_dir.dir.openFile("b", .{});
+
+    var server_transport = TransportOverStdio.init(receive_from_client, send_to_client);
+    var client_transport = TransportOverStdio.init(receive_from_server, send_to_server);
+
+    // Server -> Client
+    try server_transport.writeJsonMessage("\"hello from server\"");
+
+    // Client <- Server
+    const message_from_server = try client_transport.readJsonMessage(std.testing.allocator);
+    defer std.testing.allocator.free(message_from_server);
+    try std.testing.expectEqualStrings("\"hello from server\"", message_from_server);
+
+    // Client -> Server
+    try client_transport.writeJsonMessage("\"hello from client\"");
+
+    // Server <- Client
+    const message_from_client = try server_transport.readJsonMessage(std.testing.allocator);
+    defer std.testing.allocator.free(message_from_client);
+
+    try std.testing.expectEqualStrings("\"hello from client\"", message_from_client);
+
+    var buffer: [512]u8 = undefined;
+    try std.testing.expectEqual(0, receive_from_server.read(&buffer));
+    try std.testing.expectEqual(0, receive_from_client.read(&buffer));
+
+    try std.testing.expectError(error.EndOfStream, server_transport.readJsonMessage(std.testing.allocator));
+    try std.testing.expectError(error.EndOfStream, client_transport.readJsonMessage(std.testing.allocator));
+}
+
+pub const TransportOverStream = struct {
+    impl: struct {
+        server: std.net.Server,
+        connection: std.net.Server.Connection,
+        buffered_reader: std.io.BufferedReader(512, std.net.Stream.Reader),
+    },
+
+    pub fn initSocket(address: std.net.Address, options: std.net.Address.ListenOptions) (std.net.Address.ListenError || std.net.Server.AcceptError)!TransportOverStream {
+        var server = try address.listen(options);
+        errdefer server.deinit();
+        const connection = try server.accept();
+        errdefer connection.stream.close();
+
+        return .{ .impl = .{
+            .server = server,
+            .connection = connection,
+            .buffered_reader = std.io.bufferedReaderSize(512, connection.stream.reader()),
+        } };
+    }
+
+    pub fn deinit(transport: *TransportOverStream) void {
+        transport.impl.connection.stream.close();
+        transport.impl.server.deinit();
+        transport.* = undefined;
+    }
+
+    pub fn any(transport: *TransportOverStream) AnyTransport {
+        return .{ .impl = .{
+            .transport = transport,
+            .readJsonMessage = @ptrCast(&readJsonMessage),
+            .writeJsonMessage = @ptrCast(&writeJsonMessage),
+        } };
+    }
+
+    pub fn readJsonMessage(transport: *TransportOverStream, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
+        const reader = transport.impl.buffered_reader.reader().any();
+
+        const header = BaseProtocolHeader.parseAny(reader) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
+
+        const json_message = try allocator.alloc(u8, header.content_length);
+        errdefer allocator.free(json_message);
+
+        reader.readNoEof(json_message) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
+
+        return json_message;
+    }
+
+    pub fn writeJsonMessage(transport: *TransportOverStream, json_message: []const u8) AnyTransport.WriteError!void {
+        const header: BaseProtocolHeader = .{ .content_length = json_message.len };
+
+        var buffer: [64]u8 = undefined;
+        const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
+
+        var iovecs = [_]std.posix.iovec_const{
+            .{ .base = prefix.ptr, .len = prefix.len },
+            .{ .base = json_message.ptr, .len = json_message.len },
+        };
+
+        try transport.impl.connection.stream.writevAll(&iovecs);
+    }
+};
+
+/// Wraps a non-thread-safe transport and makes it thread-safe.
+pub fn ThreadSafeTransport(
+    comptime ChildTransport: type,
+    comptime thread_safe_read: bool,
+    comptime thread_safe_write: bool,
+    comptime MutexType: ?type,
+) type {
     return struct {
-        impl: struct {
-            state: union(enum) {
-                stdio: if (config.support_file_io) struct { in: std.fs.File, out: std.fs.File } else void,
-                socket: if (config.support_sockets) struct {
-                    server: std.net.Server,
-                    connection: std.net.Server.Connection,
-                } else void,
-            },
-            /// Same as `std.io.BufferedReader` but doesn't store the underlying reader
-            buffered_reader: struct {
-                buf: [512]u8 = undefined,
-                start: usize = 0,
-                end: usize = 0,
-            } = .{},
-            in_mutex: @TypeOf(in_mutex_init) = in_mutex_init,
-            out_mutex: @TypeOf(out_mutex_init) = out_mutex_init,
-        },
+        child_transport: ChildTransport,
+        in_mutex: @TypeOf(in_mutex_init) = in_mutex_init,
+        out_mutex: @TypeOf(out_mutex_init) = out_mutex_init,
 
         // Is there any better name of this?
         const Self = @This();
 
-        pub const ReadError = std.posix.ReadError || error{EndOfStream} || BaseProtocolHeader.ParseError;
-        pub const WriteError = std.posix.WriteError;
-
-        pub fn initStdio() Self {
-            return initFiles(std.io.getStdIn(), std.io.getStdOut());
-        }
-
-        pub fn initFiles(in: std.fs.File, out: std.fs.File) Self {
-            comptime std.debug.assert(config.support_file_io);
-            return .{ .impl = .{ .state = .{
-                .stdio = .{ .in = in, .out = out },
-            } } };
-        }
-
-        pub fn initSocket(address: std.net.Address, options: std.net.Address.ListenOptions) (std.net.Address.ListenError | std.net.Server.AcceptError)!Self {
-            comptime std.debug.assert(config.support_sockets);
-
-            var server = try address.listen(options);
-            const connection = try server.accept();
-            errdefer connection.stream.close();
-
-            return .{ .impl = .{ .state = .{
-                .socket = .{ .server = server, .connection = connection },
-            } } };
-        }
-
-        pub fn deinit(transport: *Self) void {
-            switch (transport.impl.state) {
-                .stdio => {
-                    if (!config.support_file_io) unreachable;
-                },
-                .socket => |*payload| {
-                    if (!config.support_sockets) unreachable;
-                    payload.connection.stream.close();
-                    payload.server.deinit();
-                },
-            }
-            transport.* = undefined;
-        }
-
         pub fn any(transport: *Self) AnyTransport {
-            return .{
-                .impl = .{
-                    .transport = transport,
-                    .readJsonMessage = @ptrCast(&readJsonMessage),
-                    .writeJsonMessage = @ptrCast(&writeJsonMessage),
-                },
-            };
+            return .{ .impl = .{
+                .transport = transport,
+                .readJsonMessage = @ptrCast(&readJsonMessage),
+                .writeJsonMessage = @ptrCast(&writeJsonMessage),
+            } };
         }
 
-        pub fn readJsonMessage(transport: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ReadError)![]u8 {
-            transport.impl.in_mutex.lock();
-            defer transport.impl.in_mutex.unlock();
+        pub fn readJsonMessage(transport: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
+            transport.in_mutex.lock();
+            defer transport.in_mutex.unlock();
 
-            // If any new readers are introduced, `ReadError` may need to be adjusted.
-            const any_reader = switch (transport.impl.state) {
-                .stdio => |payload| blk: {
-                    if (!config.support_file_io) unreachable;
-                    break :blk payload.in.reader().any();
-                },
-                .socket => |*payload| blk: {
-                    if (!config.support_sockets) unreachable;
-                    break :blk payload.connection.stream.reader().any();
-                },
-            };
-
-            var buffered_reader: std.io.BufferedReader(512, std.io.AnyReader) = .{
-                .unbuffered_reader = any_reader,
-                .buf = transport.impl.buffered_reader.buf,
-                .start = transport.impl.buffered_reader.start,
-                .end = transport.impl.buffered_reader.end,
-            };
-            defer transport.impl.buffered_reader = .{
-                .buf = buffered_reader.buf,
-                .start = buffered_reader.start,
-                .end = buffered_reader.end,
-            };
-
-            const header = BaseProtocolHeader.parse(buffered_reader.reader()) catch |err| return @as(ReadError, @errorCast(err));
-
-            const json_message = try allocator.alloc(u8, header.content_length);
-            errdefer allocator.free(json_message);
-
-            buffered_reader.reader().readNoEof(json_message) catch |err| return @as(ReadError, @errorCast(err));
-
-            return json_message;
+            return try transport.child_transport.readJsonMessage(allocator);
         }
 
-        pub fn writeJsonMessage(transport: *Self, json_message: []const u8) WriteError!void {
-            const header: BaseProtocolHeader = .{ .content_length = json_message.len };
+        pub fn writeJsonMessage(transport: *Self, json_message: []const u8) AnyTransport.WriteError!void {
+            transport.out_mutex.lock();
+            defer transport.out_mutex.unlock();
 
-            var buffer: [64]u8 = undefined;
-            const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
-
-            var iovecs = [_]std.posix.iovec_const{
-                .{ .base = prefix.ptr, .len = prefix.len },
-                .{ .base = json_message.ptr, .len = json_message.len },
-            };
-
-            transport.impl.out_mutex.lock();
-            defer transport.impl.out_mutex.unlock();
-
-            switch (transport.impl.state) {
-                .stdio => |payload| {
-                    if (!config.support_file_io) unreachable;
-                    try payload.out.writevAll(&iovecs);
-                },
-                .socket => |*payload| {
-                    if (!config.support_sockets) unreachable;
-                    try payload.connection.stream.writevAll(&iovecs);
-                },
-            }
+            return try transport.child_transport.writeJsonMessage(json_message);
         }
 
-        const in_mutex_init = if (config.MutexType) |T|
+        const in_mutex_init = if (MutexType) |T|
             T{}
-        else if (config.thread_safe_read)
+        else if (thread_safe_read)
             std.Thread.Mutex{}
         else
             DummyMutex{};
 
-        const out_mutex_init = if (config.MutexType) |T|
+        const out_mutex_init = if (MutexType) |T|
             T{}
-        else if (config.thread_safe_write)
+        else if (thread_safe_write)
             std.Thread.Mutex{}
         else
             DummyMutex{};
