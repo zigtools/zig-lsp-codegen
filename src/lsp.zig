@@ -634,7 +634,8 @@ pub const JsonRPCMessage = union(enum) {
     }
 
     test "duplicate_field_behavior" {
-        if (true) return error.SkipZigTest; // Enable once https://github.com/ziglang/zig/pull/20430 has been merged
+        // https://github.com/ziglang/zig/pull/20430
+        if (comptime @import("builtin").zig_version.order(std.SemanticVersion.parse("0.14.0-dev.149+8f7b50e2c") catch unreachable) == .lt) return error.SkipZigTest;
 
         try testParseExpectedError(
             \\{"jsonrpc": "2.0", "jsonrpc": "2.0", "method": "foo", "params": null}
@@ -1835,7 +1836,9 @@ test Message {
 }
 
 test "Message - duplicate fields" {
-    if (true) return error.SkipZigTest; // Enable once https://github.com/ziglang/zig/pull/20430 has been merged
+    // https://github.com/ziglang/zig/pull/20430
+    if (comptime @import("builtin").zig_version.order(std.SemanticVersion.parse("0.14.0-dev.149+8f7b50e2c") catch unreachable) == .lt) return error.SkipZigTest;
+
     try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"2.0\"     , \"jsonrpc\": \"2.0\"     }");
     try testMessageExpectError(error.DuplicateField, "{ \"id\": 5                , \"id\": 5                }");
     try testMessageExpectError(error.DuplicateField, "{ \"method\": \"shutdown\" , \"method\": \"shutdown\" }");
