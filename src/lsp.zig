@@ -992,7 +992,10 @@ pub const TransportOverStdio = struct {
         var buffer: [64]u8 = undefined;
         const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
 
-        var iovecs = [_]std.posix.iovec_const{
+        var iovecs: [2]std.posix.iovec_const = if (comptime @import("builtin").zig_version.order(.{ .major = 0, .minor = 13, .patch = 0 }) == .lt) .{
+            .{ .iov_base = prefix.ptr, .iov_len = prefix.len },
+            .{ .iov_base = json_message.ptr, .iov_len = json_message.len },
+        } else .{
             .{ .base = prefix.ptr, .len = prefix.len },
             .{ .base = json_message.ptr, .len = json_message.len },
         };
@@ -1096,7 +1099,10 @@ const TransportOverStream = struct {
         var buffer: [64]u8 = undefined;
         const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
 
-        var iovecs = [_]std.posix.iovec_const{
+        var iovecs: [2]std.posix.iovec_const = if (comptime @import("builtin").zig_version.order(.{ .major = 0, .minor = 13, .patch = 0 }) == .lt) .{
+            .{ .iov_base = prefix.ptr, .iov_len = prefix.len },
+            .{ .iov_base = json_message.ptr, .iov_len = json_message.len },
+        } else .{
             .{ .base = prefix.ptr, .len = prefix.len },
             .{ .base = json_message.ptr, .len = json_message.len },
         };
