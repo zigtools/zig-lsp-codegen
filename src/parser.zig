@@ -8,6 +8,7 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
 }
 
 pub fn StaticStringMap(comptime T: type) type {
+    @setEvalBranchQuota(2000);
     const static_string_map_renamed_zig_version = std.SemanticVersion.parse("0.13.0-dev.33+8af59d1f9") catch unreachable;
     if (@import("builtin").zig_version.order(static_string_map_renamed_zig_version) == .lt) {
         return type;
