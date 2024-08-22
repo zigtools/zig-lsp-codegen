@@ -7,8 +7,9 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
     return std.json.ArrayHashMap(Value);
 }
 
+const static_string_map_renamed_zig_version = std.SemanticVersion.parse("0.13.0-dev.33+8af59d1f9") catch unreachable;
+
 pub fn StaticStringMap(comptime T: type) type {
-    const static_string_map_renamed_zig_version = std.SemanticVersion.parse("0.13.0-dev.33+8af59d1f9") catch unreachable;
     if (@import("builtin").zig_version.order(static_string_map_renamed_zig_version) == .lt) {
         return type;
     } else {
@@ -17,7 +18,6 @@ pub fn StaticStringMap(comptime T: type) type {
 }
 
 pub fn staticStringMapInitComptime(comptime T: type, comptime kvs_list: anytype) StaticStringMap(T) {
-    const static_string_map_renamed_zig_version = std.SemanticVersion.parse("0.13.0-dev.33+8af59d1f9") catch unreachable;
     if (@import("builtin").zig_version.order(static_string_map_renamed_zig_version) == .lt) {
         @setEvalBranchQuota(kvs_list.len * kvs_list.len);
         return std.ComptimeStringMap(T, kvs_list);
