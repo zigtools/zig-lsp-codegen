@@ -134,7 +134,7 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
 
         const kvs = build_kvs: {
             const KV = struct { []const u8, T };
-            const fields = @typeInfo(T).Union.fields;
+            const fields = std.meta.fields(T);
             var kvs_array: [fields.len - 1]KV = undefined;
             for (fields[0 .. fields.len - 1], &kvs_array) |field, *kv| {
                 if (contains_empty_enum and std.mem.eql(u8, field.name, "empty")) {
@@ -362,7 +362,7 @@ fn expectParseEqual(comptime T: type, comptime expected: anytype, s: []const u8)
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    if (@typeInfo(@TypeOf(expected)) != .ErrorSet) {
+    if (@typeInfo(@TypeOf(expected)) != .error_set) {
         const actual_from_slice = try std.json.parseFromSliceLeaky(T, arena, s, .{});
         try std.testing.expectEqualDeep(@as(T, expected), actual_from_slice);
 
