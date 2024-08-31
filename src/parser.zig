@@ -362,7 +362,10 @@ fn expectParseEqual(comptime T: type, comptime expected: anytype, s: []const u8)
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    if (@typeInfo(@TypeOf(expected)) != .error_set) {
+    const std_builtin_type_rename = comptime std.SemanticVersion.parse("0.14.0-dev.1346+31fef6f11") catch unreachable;
+    const error_set_tag = comptime if (@import("builtin").zig_version.order(std_builtin_type_rename) == .lt) .ErrorSet else .error_set;
+
+    if (@typeInfo(@TypeOf(expected)) != error_set_tag) {
         const actual_from_slice = try std.json.parseFromSliceLeaky(T, arena, s, .{});
         try std.testing.expectEqualDeep(@as(T, expected), actual_from_slice);
 
