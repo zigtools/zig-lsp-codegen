@@ -872,6 +872,7 @@ pub const BaseProtocolHeader = struct {
                     ':' => {
                         // The ": " is not being added to the buffer here!
                         if (try reader.readByte() != ' ') return error.InvalidHeaderField;
+                        if (maybe_colon_index != null) return error.InvalidHeaderField; // duplicate ':'
                         maybe_colon_index = buffer_index;
                     },
                     else => {
@@ -915,6 +916,7 @@ pub const BaseProtocolHeader = struct {
         try expectParseError("contentLength: 32\r\n\r\n", error.MissingContentLength);
         try expectParseError("content-length: abababababab\r\n\r\n", error.InvalidContentLength);
         try expectParseError("content-length: 9999999999999999999999999999999999\r\n\r\n", error.OversizedMessage);
+        try expectParseError("content-length: : 32\r\n\r\n", error.InvalidHeaderField);
 
         try expectParse("content-length: 32\r\n\r\n", .{ .content_length = 32 });
         try expectParse("Content-Length: 32\r\n\r\n", .{ .content_length = 32 });
