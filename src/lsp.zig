@@ -954,6 +954,120 @@ pub const BaseProtocolHeader = struct {
     }
 };
 
+pub const TestingTransport = struct {
+    allocator: std.mem.Allocator,
+    read_buffer: []const u8,
+    read_pos: usize = 0,
+    write_buffer: std.ArrayListUnmanaged(u8) = .{},
+
+    comptime {
+        std.debug.assert(@import("builtin").is_test);
+    }
+
+    pub fn initWriteOnly(allocator: std.mem.Allocator) TestingTransport {
+        return .{
+            .allocator = allocator,
+            .read_buffer = &.{},
+        };
+    }
+
+    pub fn initReadOnly(read_buffer: []const u8) TestingTransport {
+        return .{
+            .allocator = std.testing.failing_allocator,
+            .read_buffer = read_buffer,
+        };
+    }
+
+    pub fn deinit(transport: *TestingTransport) void {
+        transport.write_buffer.deinit(transport.allocator);
+        transport.* = undefined;
+    }
+
+    pub fn getWritten(transport: TestingTransport) []const u8 {
+        return transport.write_buffer.items;
+    }
+
+    pub fn any(transport: *TestingTransport) AnyTransport {
+        return .{ .impl = .{
+            .transport = transport,
+            .readJsonMessage = @ptrCast(&readJsonMessage),
+            .writeJsonMessage = @ptrCast(&writeJsonMessage),
+        } };
+    }
+
+    pub fn readJsonMessage(transport: *TestingTransport, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
+        var fbs = std.io.fixedBufferStream(transport.read_buffer);
+        fbs.pos = transport.read_pos;
+        defer transport.read_pos = fbs.pos;
+
+        const reader = fbs.reader();
+
+        const header = try BaseProtocolHeader.parse(reader);
+
+        const json_message = try allocator.alloc(u8, header.content_length);
+        errdefer allocator.free(json_message);
+
+        try reader.readNoEof(json_message);
+
+        return json_message;
+    }
+
+    test readJsonMessage {
+        var testing_transport = TestingTransport.initReadOnly("Content-Length: 70\r\n\r\n" ++
+            \\{
+            \\    "jsonrpc": "2.0",
+            \\    "method": "methodName",
+            \\    "params": {}
+            \\}
+        );
+        const json_message = try testing_transport.readJsonMessage(std.testing.allocator);
+        defer std.testing.allocator.free(json_message);
+
+        try std.testing.expectEqualStrings(
+            \\{
+            \\    "jsonrpc": "2.0",
+            \\    "method": "methodName",
+            \\    "params": {}
+            \\}
+        , json_message);
+
+        const result = testing_transport.readJsonMessage(std.testing.allocator);
+        if (result) |message| std.testing.allocator.free(message) else |_| {}
+        try std.testing.expectError(error.EndOfStream, result);
+    }
+
+    pub fn writeJsonMessage(transport: *TestingTransport, json_message: []const u8) AnyTransport.WriteError!void {
+        const header: BaseProtocolHeader = .{ .content_length = json_message.len };
+
+        var buffer: [64]u8 = undefined;
+        const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
+
+        transport.write_buffer.appendSlice(transport.allocator, prefix) catch @panic("OOM");
+        transport.write_buffer.appendSlice(transport.allocator, json_message) catch @panic("OOM");
+    }
+
+    test writeJsonMessage {
+        var testing_transport = TestingTransport.initWriteOnly(std.testing.allocator);
+        defer testing_transport.deinit();
+
+        try testing_transport.writeJsonMessage(
+            \\{
+            \\    "jsonrpc": "2.0",
+            \\    "method": "methodName",
+            \\    "params": {}
+            \\}
+        );
+
+        try std.testing.expectEqualStrings("Content-Length: 70\r\n\r\n" ++
+            \\{
+            \\    "jsonrpc": "2.0",
+            \\    "method": "methodName",
+            \\    "params": {}
+            \\}
+        , testing_transport.getWritten());
+    }
+};
+
 pub const TransportOverStdio = struct {
     impl: struct {
         in: std.io.BufferedReader(512, std.fs.File.Reader),
