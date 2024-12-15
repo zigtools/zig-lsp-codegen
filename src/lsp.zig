@@ -1309,6 +1309,160 @@ pub const AnyTransport = struct {
     }
 };
 
+pub const minimum_logging_buffer_size: usize = 128;
+
+/// Creates a `window/logMessage` notification.
+/// Returns a slice that points into `buffer`.
+pub fn bufPrintLogMessage(
+    /// A temporary buffer which will be used to store the json message.
+    /// The formatted message will be truncated to fit into the buffer.
+    ///
+    /// Must be at least `minimum_logging_buffer_size` bytes long.
+    buffer: []u8,
+    message_type: types.MessageType,
+    comptime fmt: []const u8,
+    args: anytype,
+) []u8 {
+    return bufPrintLogMessageTypeErased(
+        buffer,
+        message_type,
+        struct {
+            fn format(writer: std.io.AnyWriter, opaque_params: *const anyopaque) void {
+                std.fmt.format(writer, fmt, @as(*const @TypeOf(args), @alignCast(@ptrCast(opaque_params))).*) catch {};
+            }
+        }.format,
+        &args,
+    );
+}
+
+fn bufPrintLogMessageTypeErased(
+    buffer: []u8,
+    message_type: types.MessageType,
+    format_fn: *const fn (std.io.AnyWriter, opaque_params: *const anyopaque) void,
+    opaque_params: *const anyopaque,
+) []u8 {
+    std.debug.assert(buffer.len >= minimum_logging_buffer_size);
+    const json_message_suffix: []const u8 = "\"}}";
+    var fbs = std.io.fixedBufferStream(buffer[0 .. buffer.len - json_message_suffix.len]);
+
+    const writer = fbs.writer();
+    writer.print(
+        \\{{"jsonrpc":"2.0","method":"window/logMessage","params":{{"type":{},"message":"
+    , .{std.json.fmt(message_type, .{})}) catch unreachable;
+
+    const json_writer: std.io.Writer(*std.io.FixedBufferStream([]u8), error{NoSpaceLeft}, jsonWrite) = .{
+        .context = &fbs,
+    };
+
+    format_fn(json_writer.any(), opaque_params);
+
+    fbs.buffer = buffer;
+    fbs.writer().writeAll(json_message_suffix) catch unreachable;
+
+    return fbs.getWritten();
+}
+
+fn jsonWrite(fbs: *std.io.FixedBufferStream([]u8), bytes: []const u8) error{NoSpaceLeft}!usize {
+    var write_cursor: usize = 0;
+    var i: usize = 0;
+    while (i < bytes.len) : (i += 1) {
+        switch (bytes[i]) {
+            0x20...0x21, 0x23...0x5B, 0x5D...0xFF => {},
+            0x00...0x1F, '\\', '\"' => {
+                try fbsWriteOrEllipses(fbs, bytes[write_cursor..i]);
+
+                // either write an escape code in its entirety or don't at all
+                const pos = fbs.pos;
+                errdefer fbs.pos = pos;
+
+                const writer = fbs.writer();
+
+                switch (bytes[i]) {
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\"' => try writer.writeAll("\\\""),
+                    0x08 => try writer.writeAll("\\b"),
+                    0x0C => try writer.writeAll("\\f"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    else => {
+                        try fbs.writer().writeAll("\\u");
+                        try std.fmt.formatIntValue(bytes[i], "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, fbs.writer());
+                    },
+                }
+
+                write_cursor = i + 1;
+            },
+        }
+    }
+
+    try fbsWriteOrEllipses(fbs, bytes[write_cursor..]);
+    return bytes.len;
+}
+
+fn fbsWriteOrEllipses(
+    fbs: *std.io.FixedBufferStream([]u8),
+    bytes: []const u8,
+) error{NoSpaceLeft}!void {
+    const ellipses: []const u8 = "...";
+
+    const pos_before_write = fbs.pos;
+    const amt = fbs.write(bytes) catch 0;
+    if (amt == bytes.len) return;
+
+    // try to move the buffer position back so that we have space for the ellipses
+    fbs.pos = @max(
+        pos_before_write, // make sure that we don't backtrack beyond an escape code
+        @min(fbs.pos, fbs.buffer.len - ellipses.len),
+    );
+    if (fbs.buffer.len - fbs.pos >= ellipses.len) {
+        fbs.writer().writeAll(ellipses) catch unreachable;
+    }
+    return error.NoSpaceLeft;
+}
+
+test bufPrintLogMessage {
+    var buffer: [1024]u8 = undefined;
+    const json_message = bufPrintLogMessage(
+        &buffer,
+        .Warning,
+        "Hello {s} '\\foo{s}bar'",
+        .{ "World", "\"" },
+    );
+
+    try std.testing.expectEqualStrings(
+        \\{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":2,"message":"Hello World '\\foo\"bar'"}}
+    , json_message);
+}
+
+test "bufPrintLogMessage - avoid buffer overflow" {
+    var buffer: [128]u8 = undefined;
+    const json_message = bufPrintLogMessage(
+        &buffer,
+        @enumFromInt(42),
+        "01234567890123456789012345678901234567890123456789",
+        .{},
+    );
+
+    try std.testing.expectEqualStrings(
+        \\{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":42,"message":"012345678901234567890123456789012345678901234..."}}
+    , json_message);
+}
+
+test "bufPrintLogMessage - avoid buffer overflow with escape codes" {
+    var buffer: [128]u8 = undefined;
+    const json_message = bufPrintLogMessage(
+        &buffer,
+        @enumFromInt(42),
+        "\x00" ** 128,
+        .{},
+    );
+
+    try std.testing.expectEqualStrings(
+        \\{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":42,"message":"\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"}}
+    , json_message);
+}
+
 pub const MethodWithParams = struct {
     method: []const u8,
     /// The `std.json.Value` can only be `.null`, `.array` or `.object`.
