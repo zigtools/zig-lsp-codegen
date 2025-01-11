@@ -821,6 +821,132 @@ pub const JsonRPCMessage = union(enum) {
     }
 };
 
+pub fn TypedJsonRPCRequest(
+    /// Must serialize to a JSON Array, JSON Object or JSON null.
+    comptime Params: type,
+) type {
+    return struct {
+        comptime jsonrpc: []const u8 = "2.0",
+        /// The request id.
+        id: JsonRPCMessage.ID,
+        /// The method to be invoked.
+        method: []const u8,
+        /// The requests's params. `params == null` means means no `"params"` field.
+        params: ?Params,
+
+        pub fn jsonStringify(request: @This(), stream: anytype) @TypeOf(stream.*).Error!void {
+            try stream.beginObject();
+
+            try stream.objectField("jsonrpc");
+            try stream.write("2.0");
+
+            try stream.objectField("id");
+            try stream.write(request.id);
+
+            try stream.objectField("method");
+            try stream.write(request.method);
+
+            if (request.params) |params| {
+                try stream.objectField("params");
+                switch (@TypeOf(params)) {
+                    void,
+                    ?void,
+                    => try stream.write(null),
+                    else => try stream.write(params),
+                }
+            } else if (stream.options.emit_null_optional_fields) {
+                try stream.objectField("params");
+                try stream.write(null);
+            }
+
+            try stream.endObject();
+        }
+    };
+}
+
+pub fn TypedJsonRPCNotification(
+    /// Must serialize to a JSON Array, JSON Object or JSON null.
+    comptime Params: type,
+) type {
+    return struct {
+        comptime jsonrpc: []const u8 = "2.0",
+        /// The method to be invoked.
+        method: []const u8,
+        /// The requests's params. `params == null` means means no `"params"` field.
+        params: ?Params,
+
+        pub fn jsonStringify(notification: @This(), stream: anytype) @TypeOf(stream.*).Error!void {
+            try stream.beginObject();
+
+            try stream.objectField("jsonrpc");
+            try stream.write("2.0");
+
+            try stream.objectField("method");
+            try stream.write(notification.method);
+
+            if (notification.params) |params| {
+                try stream.objectField("params");
+                switch (@TypeOf(params)) {
+                    void,
+                    ?void,
+                    => try stream.write(null),
+                    else => try stream.write(params),
+                }
+            } else if (stream.options.emit_null_optional_fields) {
+                try stream.objectField("params");
+                try stream.write(null);
+            }
+
+            try stream.endObject();
+        }
+    };
+}
+
+pub fn TypedJsonRPCResponse(
+    /// Must serialize to a JSON Array, JSON Object or JSON null.
+    comptime Result: type,
+) type {
+    return struct {
+        /// The request id.
+        ///
+        /// It must be the same as the value of the `id` member in the `Request` object.
+        /// If there was an error in detecting the id in the `Request` object (e.g. `Error.Code.parse_error`/`Error.Code.invalid_request`), it must be `null`.
+        id: ?JsonRPCMessage.ID,
+        /// The result of a request.
+        result: ?Result,
+
+        pub fn jsonStringify(response: @This(), stream: anytype) @TypeOf(stream.*).Error!void {
+            try stream.beginObject();
+
+            try stream.objectField("jsonrpc");
+            try stream.write("2.0");
+
+            if (response.id) |id| {
+                try stream.objectField("id");
+                try stream.write(id);
+            } else if (stream.options.emit_null_optional_fields) {
+                try stream.objectField("id");
+                try stream.write(null);
+            }
+
+            if (response.result) |result| {
+                try stream.objectField("result");
+                switch (@TypeOf(result)) {
+                    void,
+                    ?void,
+                    => try stream.write(null),
+                    else => try stream.write(result),
+                }
+            } else {
+                try stream.objectField("result");
+                try stream.write(null);
+            }
+
+            try stream.endObject();
+        }
+    };
+}
+
 /// A minimal non-allocating parser for the LSP Base Protocol Header Part.
 ///
 /// See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#headerPart
