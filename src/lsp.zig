@@ -255,7 +255,7 @@ pub const JsonRPCMessage = union(enum) {
 
         for (source.object.keys(), source.object.values()) |field_name, field_source| {
             inline for (std.meta.fields(Fields)) |field| {
-                const field_enum = comptime std.meta.stringToEnum(std.meta.FieldEnum(Fields), field.name).?;
+                const field_enum = comptime @field(std.meta.FieldEnum(Fields), field.name);
                 if (std.mem.eql(u8, field.name, field_name)) {
                     @field(fields, field.name) = try Fields.parseFromValue(field_enum, allocator, field_source, options);
                     break;

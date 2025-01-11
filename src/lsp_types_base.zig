@@ -37,6 +37,7 @@ test MessageDirection {
 
 /// Returns comptime-known metadata about them a Request.
 pub fn getRequestMetadata(comptime method: []const u8) ?RequestMetadata {
+    @setEvalBranchQuota(10_000);
     for (request_metadata) |meta| {
         if (std.mem.eql(u8, method, meta.method)) {
             return meta;
@@ -47,6 +48,7 @@ pub fn getRequestMetadata(comptime method: []const u8) ?RequestMetadata {
 
 /// Returns comptime-known metadata about them a Notification.
 pub fn getNotificationMetadata(comptime method: []const u8) ?NotificationMetadata {
+    @setEvalBranchQuota(10_000);
     for (notification_metadata) |meta| {
         if (std.mem.eql(u8, method, meta.method)) {
             return meta;
