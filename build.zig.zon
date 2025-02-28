@@ -1,5 +1,5 @@
 .{
-    .name = "lsp-codegen",
+    .name = .lsp_codegen,
     .version = "0.1.0",
     .minimum_zig_version = "0.12.0",
     .dependencies = .{},
@@ -11,4 +11,5 @@
         "LICENSE",
         "README.md",
     },
+    .fingerprint = 0x8c3c9a6459133f92,
 }
