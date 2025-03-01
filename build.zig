@@ -26,8 +26,10 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "lsp-codegen",
-        .root_source_file = b.path("src/main.zig"),
-        .target = b.graph.host,
+        .root_module = b.addModule("lsp-codegen", .{
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.graph.host,
+        }),
     });
     // The metaModel.json file should be removed once https://github.com/ziglang/zig/issues/17895 has been resolved.
     exe.root_module.addAnonymousImport("meta-model", .{ .root_source_file = b.path("metaModel.json") });
@@ -35,29 +37,37 @@ pub fn build(b: *std.Build) void {
     const run_codegen = b.addRunArtifact(exe);
     const lsp_types_output_file = run_codegen.addOutputFileArg("lsp_types.zig");
 
-    const lsp_parser_module = b.addModule("lsp-parser", .{ .root_source_file = b.path("src/parser.zig") });
-    const lsp_types_module = b.addModule("lsp-types", .{ .root_source_file = lsp_types_output_file });
-    lsp_types_module.addImport("parser", lsp_parser_module);
+    const lsp_parser_module = b.addModule("lsp-parser", .{
+        .root_source_file = b.path("src/parser.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const lsp_types_module = b.addModule("lsp-types", .{
+        .root_source_file = lsp_types_output_file,
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "parser", .module = lsp_parser_module },
+        },
+    });
 
     const lsp_module = b.addModule("lsp", .{
         .root_source_file = b.path("src/lsp.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "parser", .module = lsp_parser_module },
+            .{ .name = "types", .module = lsp_types_module },
+        },
     });
-    lsp_module.addImport("parser", lsp_parser_module);
-    lsp_module.addImport("types", lsp_types_module);
 
     // -------------------------------- Autodoc --------------------------------
 
-    // This can be simplified with https://github.com/ziglang/zig/pull/20388
     const autodoc_exe = b.addObject(.{
         .name = "lsp",
-        .root_source_file = b.path("src/lsp.zig"),
-        .target = target,
-        .optimize = .Debug,
+        .root_module = lsp_module,
     });
-    autodoc_exe.root_module.addImport("parser", lsp_parser_module);
-    autodoc_exe.root_module.addImport("types", lsp_types_module);
 
     const install_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_exe.getEmittedDocs(),
@@ -70,23 +80,16 @@ pub fn build(b: *std.Build) void {
 
     // --------------------------------- Tests ---------------------------------
 
-    // This can be simplified with https://github.com/ziglang/zig/pull/20388
     const lsp_tests = b.addTest(.{
-        .root_source_file = b.path("src/lsp.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = lsp_module,
         .filters = test_filters,
         .use_lld = use_llvm,
         .use_llvm = use_llvm,
     });
-    lsp_tests.root_module.addImport("parser", lsp_parser_module);
-    lsp_tests.root_module.addImport("types", lsp_types_module);
 
     const lsp_parser_tests = b.addTest(.{
         .name = "test parser",
-        .root_source_file = b.path("src/parser.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = lsp_parser_module,
         .filters = test_filters,
         .use_lld = use_llvm,
         .use_llvm = use_llvm,
@@ -100,23 +103,18 @@ pub fn build(b: *std.Build) void {
 
     const kcov_bin = b.findProgram(&.{"kcov"}, &.{}) catch "kcov";
 
-    const addOutputDirectoryArg = comptime if (@import("builtin").zig_version.order(.{ .major = 0, .minor = 13, .patch = 0 }) == .lt)
-        std.Build.Step.Run.addOutputFileArg
-    else
-        std.Build.Step.Run.addOutputDirectoryArg;
-
     const kcov_merge = std.Build.Step.Run.create(b, "kcov merge coverage");
     kcov_merge.rename_step_with_output_arg = false;
     kcov_merge.addArg(kcov_bin);
     kcov_merge.addArg("--merge");
-    const coverage_output = addOutputDirectoryArg(kcov_merge, ".");
+    const coverage_output = kcov_merge.addOutputDirectoryArg(".");
 
     for ([_]*std.Build.Step.Compile{ lsp_tests, lsp_parser_tests }) |test_artifact| {
         const kcov_collect = std.Build.Step.Run.create(b, "kcov collect coverage");
         kcov_collect.addArg(kcov_bin);
         kcov_collect.addArg("--collect-only");
         kcov_collect.addPrefixedDirectoryArg("--include-pattern=", b.path("."));
-        kcov_merge.addDirectoryArg(addOutputDirectoryArg(kcov_collect, test_artifact.name));
+        kcov_merge.addDirectoryArg(kcov_collect.addOutputDirectoryArg(test_artifact.name));
         kcov_collect.addArtifactArg(test_artifact);
         kcov_collect.enableTestRunnerMode();
     }
