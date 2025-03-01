@@ -98,6 +98,8 @@ pub fn build(b: *std.Build) void {
 
     // ----------------------------- Code Coverage -----------------------------
 
+    const kcov_bin = b.findProgram(&.{"kcov"}, &.{}) catch "kcov";
+
     const addOutputDirectoryArg = comptime if (@import("builtin").zig_version.order(.{ .major = 0, .minor = 13, .patch = 0 }) == .lt)
         std.Build.Step.Run.addOutputFileArg
     else
@@ -105,13 +107,13 @@ pub fn build(b: *std.Build) void {
 
     const kcov_merge = std.Build.Step.Run.create(b, "kcov merge coverage");
     kcov_merge.rename_step_with_output_arg = false;
-    kcov_merge.addArg("kcov");
+    kcov_merge.addArg(kcov_bin);
     kcov_merge.addArg("--merge");
     const coverage_output = addOutputDirectoryArg(kcov_merge, ".");
 
     for ([_]*std.Build.Step.Compile{ lsp_tests, lsp_parser_tests }) |test_artifact| {
         const kcov_collect = std.Build.Step.Run.create(b, "kcov collect coverage");
-        kcov_collect.addArg("kcov");
+        kcov_collect.addArg(kcov_bin);
         kcov_collect.addArg("--collect-only");
         kcov_collect.addPrefixedDirectoryArg("--include-pattern=", b.path("."));
         kcov_merge.addDirectoryArg(addOutputDirectoryArg(kcov_collect, test_artifact.name));
