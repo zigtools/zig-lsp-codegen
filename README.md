@@ -9,17 +9,20 @@ Generates `std.json` compatible Zig code based on the official [LSP MetaModel](h
 
 ## Installation
 
+> [!NOTE]
+> The minimum supported Zig version is `0.14.0-dev.3445+6c3cbb0c8`.
+
 ```bash
 # Initialize a `zig build` project if you haven't already
 zig init
-# Add the `lsp-codegen` package to your `build.zig.zon`
+# Add the `lsp_codegen` package to your `build.zig.zon`
 zig fetch --save git+https://github.com/zigtools/zig-lsp-codegen.git
 ```
 
-You can then import `lsp-codegen` in your `build.zig` with:
+You can then import `lsp_codegen` in your `build.zig` with:
 
 ```zig
-const lsp_codegen = b.dependency("lsp-codegen", .{});
+const lsp_codegen = b.dependency("lsp_codegen", .{});
 const exe = b.addExecutable(...);
 exe.root_module.addImport("lsp", lsp_codegen.module("lsp"));
 ```
