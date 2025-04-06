@@ -10,7 +10,7 @@ Generates `std.json` compatible Zig code based on the official [LSP MetaModel](h
 ## Installation
 
 > [!NOTE]
-> The minimum supported Zig version is `0.14.0-dev.3445+6c3cbb0c8`.
+> The minimum supported Zig version is `0.14.0`.
 
 ```bash
 # Initialize a `zig build` project if you haven't already
