@@ -1250,14 +1250,20 @@ test TransportOverStdio {
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const send_to_client = try tmp_dir.dir.createFile("a", .{});
-    const send_to_server = try tmp_dir.dir.createFile("b", .{});
+    var send_to_client: ?std.fs.File = try tmp_dir.dir.createFile("a", .{});
+    defer if (send_to_client) |file| file.close();
+
+    var send_to_server: ?std.fs.File = try tmp_dir.dir.createFile("b", .{});
+    defer if (send_to_server) |file| file.close();
 
     const receive_from_server = try tmp_dir.dir.openFile("a", .{});
-    const receive_from_client = try tmp_dir.dir.openFile("b", .{});
+    defer receive_from_server.close();
 
-    var server_transport = TransportOverStdio.init(receive_from_client, send_to_client);
-    var client_transport = TransportOverStdio.init(receive_from_server, send_to_server);
+    const receive_from_client = try tmp_dir.dir.openFile("b", .{});
+    defer receive_from_client.close();
+
+    var server_transport = TransportOverStdio.init(receive_from_client, send_to_client.?);
+    var client_transport = TransportOverStdio.init(receive_from_server, send_to_server.?);
 
     // Server -> Client
     try server_transport.writeJsonMessage("\"hello from server\"");
@@ -1275,6 +1281,12 @@ test TransportOverStdio {
     defer std.testing.allocator.free(message_from_client);
 
     try std.testing.expectEqualStrings("\"hello from client\"", message_from_client);
+
+    send_to_client.?.close(); // Do not call `server_transport.writeJsonMessage` anymore
+    send_to_client = null;
+
+    send_to_server.?.close(); // Do not call `client_transport.writeJsonMessage` anymore
+    send_to_server = null;
 
     var buffer: [512]u8 = undefined;
     try std.testing.expectEqual(0, receive_from_server.read(&buffer));
