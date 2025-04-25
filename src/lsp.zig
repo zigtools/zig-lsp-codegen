@@ -1756,7 +1756,7 @@ pub fn Message(comptime config: MessageConfig) type {
             \\    \\}
             \\;
             \\
-            \\const Message = lsp.Message(..., ...);
+            \\const Message = lsp.Message(.{ ... });
             \\const lsp_message = try Message.jsonParseFromSlice(allocator, json_message, .{});
             \\
         );
@@ -1981,7 +1981,7 @@ pub fn Message(comptime config: MessageConfig) type {
                 .request => |params| return .{
                     .request = .{
                         .id = id orelse
-                            return error.MissingField, // "method" is a request but there was not "id" field
+                            return error.MissingField, // "method" is a request but there was no "id" field
                         .params = params,
                     },
                 },
@@ -2124,7 +2124,7 @@ pub fn Message(comptime config: MessageConfig) type {
             request: Request.Params,
             /// The `"method"` and `"params"` field has been encountered. The method is part of `Notification.Params`.
             notification: Notification.Params,
-            /// The `"method"` field has been encountered and `"params"` field has been encountered.
+            /// The `"method"` and `"params"` field has been encountered.
             /// The method is valid but not part of `Request.Params` nor `Notification.Params`.
             uninteresting_request_or_notification: MethodWithParams,
             /// Only the `"method"` field has been encountered.

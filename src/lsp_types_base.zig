@@ -1,4 +1,4 @@
-//! Type definition of the Language Server Protocol.
+//! Type definitions of the Language Server Protocol.
 
 const std = @import("std");
 
