@@ -869,6 +869,20 @@ pub fn TypedJsonRPCRequest(
     };
 }
 
+test TypedJsonRPCRequest {
+    const Request = TypedJsonRPCRequest(bool);
+
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","id":42,"method":"name","params":null}
+    , "{}", .{std.json.fmt(Request{ .id = .{ .number = 42 }, .method = "name", .params = null }, .{})});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","id":"42","method":"name"}
+    , "{}", .{std.json.fmt(Request{ .id = .{ .string = "42" }, .method = "name", .params = null }, .{ .emit_null_optional_fields = false })});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","id":42,"method":"name","params":true}
+    , "{}", .{std.json.fmt(Request{ .id = .{ .number = 42 }, .method = "name", .params = true }, .{})});
+}
+
 pub fn TypedJsonRPCNotification(
     /// Must serialize to a JSON Array, JSON Object or JSON null.
     comptime Params: type,
@@ -905,6 +919,20 @@ pub fn TypedJsonRPCNotification(
             try stream.endObject();
         }
     };
+}
+
+test TypedJsonRPCNotification {
+    const Notification = TypedJsonRPCNotification(bool);
+
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"name","params":null}
+    , "{}", .{std.json.fmt(Notification{ .method = "name", .params = null }, .{})});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"name"}
+    , "{}", .{std.json.fmt(Notification{ .method = "name", .params = null }, .{ .emit_null_optional_fields = false })});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","method":"name","params":true}
+    , "{}", .{std.json.fmt(Notification{ .method = "name", .params = true }, .{})});
 }
 
 pub fn TypedJsonRPCResponse(
@@ -949,6 +977,23 @@ pub fn TypedJsonRPCResponse(
             try stream.endObject();
         }
     };
+}
+
+test TypedJsonRPCResponse {
+    const Response = TypedJsonRPCResponse(bool);
+
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"message","data":null}}
+    , "{}", .{std.json.fmt(Response{
+        .id = null,
+        .result_or_error = .{ .@"error" = .{ .code = .invalid_request, .message = "message", .data = .null } },
+    }, .{})});
+    try std.testing.expectFmt(
+        \\{"jsonrpc":"2.0","id":5,"result":true}
+    , "{}", .{std.json.fmt(Response{
+        .id = .{ .number = 5 },
+        .result_or_error = .{ .result = true },
+    }, .{})});
 }
 
 /// A minimal non-allocating parser for the LSP Base Protocol Header Part.
@@ -1143,7 +1188,7 @@ pub const TestingTransport = struct {
     }
 
     test readJsonMessage {
-        var testing_transport = TestingTransport.initReadOnly("Content-Length: 70\r\n\r\n" ++
+        var testing_transport: TestingTransport = .initReadOnly("Content-Length: 70\r\n\r\n" ++
             \\{
             \\    "jsonrpc": "2.0",
             \\    "method": "methodName",
@@ -1161,7 +1206,7 @@ pub const TestingTransport = struct {
             \\}
         , json_message);
 
-        const result = testing_transport.readJsonMessage(std.testing.allocator);
+        const result = testing_transport.any().readJsonMessage(std.testing.allocator);
         if (result) |message| std.testing.allocator.free(message) else |_| {}
         try std.testing.expectError(error.EndOfStream, result);
     }
@@ -1177,7 +1222,7 @@ pub const TestingTransport = struct {
     }
 
     test writeJsonMessage {
-        var testing_transport = TestingTransport.initWriteOnly(std.testing.allocator);
+        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
         defer testing_transport.deinit();
 
         try testing_transport.writeJsonMessage(
@@ -1574,6 +1619,20 @@ test bufPrintLogMessage {
 
     try std.testing.expectEqualStrings(
         \\{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":2,"message":"Hello World '\\foo\"bar'"}}
+    , json_message);
+}
+
+test "bufPrintLogMessage - escape codes" {
+    var buffer: [128]u8 = undefined;
+    const json_message = bufPrintLogMessage(
+        &buffer,
+        .Info,
+        "\\\"\x08\x0C\n\r\t\x00",
+        .{},
+    );
+
+    try std.testing.expectEqualStrings(
+        \\{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"\\\"\b\f\n\r\t\u0000"}}
     , json_message);
 }
 
