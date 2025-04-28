@@ -107,7 +107,7 @@ pub const JsonRPCMessage = union(enum) {
             message: []const u8,
             /// A primitive or structured value that contains additional
             /// information about the error. Can be omitted.
-            data: std.json.Value = .null,
+            data: ?std.json.Value = null,
 
             /// The error codes from and including -32768 to -32000 are reserved for pre-defined errors. Any code within this range, but not defined explicitly below is reserved for future use.
             ///
@@ -534,23 +534,24 @@ pub const JsonRPCMessage = union(enum) {
             .{},
         );
 
+        // TODO this should be `.data = .null`
         try testParse(
             \\{"id": "id", "jsonrpc": "2.0", "result": null, "error": {"code": 3, "message": "foo", "data": null}}
         , .{ .response = .{
             .id = .{ .string = "id" },
-            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(3), .message = "foo", .data = .null } },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(3), .message = "foo", .data = null } },
         } }, .{});
         try testParse(
-            \\{"id": "id", "jsonrpc": "2.0", "error": {"code": 42, "message": "bar"}}
+            \\{"id": "id", "jsonrpc": "2.0", "error": {"code": 42, "message": "bar", "data": true}}
         , .{ .response = .{
             .id = .{ .string = "id" },
-            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null } },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .{ .bool = true } } },
         } }, .{});
         try testParse(
             \\{"id": "id", "jsonrpc": "2.0", "error": {"code": 42, "message": "bar"}, "result": null}
         , .{ .response = .{
             .id = .{ .string = "id" },
-            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = .null } },
+            .result_or_error = .{ .@"error" = .{ .code = @enumFromInt(42), .message = "bar", .data = null } },
         } }, .{});
     }
 
