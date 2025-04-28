@@ -7,25 +7,6 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
     return std.json.ArrayHashMap(Value);
 }
 
-const static_string_map_renamed_zig_version = std.SemanticVersion.parse("0.13.0-dev.33+8af59d1f9") catch unreachable;
-
-pub fn StaticStringMap(comptime T: type) type {
-    if (@import("builtin").zig_version.order(static_string_map_renamed_zig_version) == .lt) {
-        return type;
-    } else {
-        return std.StaticStringMap(T);
-    }
-}
-
-pub fn staticStringMapInitComptime(comptime T: type, comptime kvs_list: anytype) StaticStringMap(T) {
-    if (@import("builtin").zig_version.order(static_string_map_renamed_zig_version) == .lt) {
-        @setEvalBranchQuota(kvs_list.len * kvs_list.len);
-        return std.ComptimeStringMap(T, kvs_list);
-    } else {
-        return std.StaticStringMap(T).initComptime(kvs_list);
-    }
-}
-
 pub fn UnionParser(comptime T: type) type {
     return struct {
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) std.json.ParseError(@TypeOf(source.*))!T {
@@ -146,7 +127,7 @@ pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bo
             break :build_kvs kvs_array;
         };
 
-        const enum_from_string_map: StaticStringMap(T) = staticStringMapInitComptime(T, kvs);
+        const enum_from_string_map: std.StaticStringMap(T) = .initComptime(kvs);
 
         pub fn eql(a: T, b: T) bool {
             const tag_a = std.meta.activeTag(a);

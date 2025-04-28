@@ -639,9 +639,6 @@ pub const JsonRPCMessage = union(enum) {
     }
 
     test "duplicate_field_behavior" {
-        // https://github.com/ziglang/zig/pull/20430
-        if (comptime @import("builtin").zig_version.order(std.SemanticVersion.parse("0.14.0-dev.149+8f7b50e2c") catch unreachable) == .lt) return error.SkipZigTest;
-
         try testParseExpectedError(
             \\{"jsonrpc": "2.0", "jsonrpc": "2.0", "method": "foo", "params": null}
         ,
@@ -1283,10 +1280,7 @@ pub const TransportOverStdio = struct {
         var buffer: [64]u8 = undefined;
         const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
 
-        var iovecs: [2]std.posix.iovec_const = if (comptime @import("builtin").zig_version.order(.{ .major = 0, .minor = 13, .patch = 0 }) == .lt) .{
-            .{ .iov_base = prefix.ptr, .iov_len = prefix.len },
-            .{ .iov_base = json_message.ptr, .iov_len = json_message.len },
-        } else .{
+        var iovecs: [2]std.posix.iovec_const = .{
             .{ .base = prefix.ptr, .len = prefix.len },
             .{ .base = json_message.ptr, .len = json_message.len },
         };
@@ -1402,10 +1396,7 @@ const TransportOverStream = struct {
         var buffer: [64]u8 = undefined;
         const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
 
-        var iovecs: [2]std.posix.iovec_const = if (comptime @import("builtin").zig_version.order(.{ .major = 0, .minor = 13, .patch = 0 }) == .lt) .{
-            .{ .iov_base = prefix.ptr, .iov_len = prefix.len },
-            .{ .iov_base = json_message.ptr, .iov_len = json_message.len },
-        } else .{
+        var iovecs: [2]std.posix.iovec_const = .{
             .{ .base = prefix.ptr, .len = prefix.len },
             .{ .base = json_message.ptr, .len = json_message.len },
         };
@@ -2107,7 +2098,7 @@ pub fn Message(comptime config: MessageConfig) type {
             comptime Params: type,
             /// Must be either `*std.json.Scanner`, `*std.json.Reader` or `std.json.Value`.
             comptime Source: type,
-        ) parser.StaticStringMap(ParamsParserFunc(Params, Source)) {
+        ) std.StaticStringMap(ParamsParserFunc(Params, Source)) {
             comptime {
                 const fields = std.meta.fields(Params);
 
@@ -2145,7 +2136,7 @@ pub fn Message(comptime config: MessageConfig) type {
                     i += 1;
                 }
 
-                return parser.staticStringMapInitComptime(ParamsParserFunc(Params, Source), kvs_list);
+                return .initComptime(kvs_list);
             }
         }
 
@@ -2322,9 +2313,6 @@ test Message {
 }
 
 test "Message - duplicate fields" {
-    // https://github.com/ziglang/zig/pull/20430
-    if (comptime @import("builtin").zig_version.order(std.SemanticVersion.parse("0.14.0-dev.149+8f7b50e2c") catch unreachable) == .lt) return error.SkipZigTest;
-
     try testMessageExpectError(error.DuplicateField, "{ \"jsonrpc\": \"2.0\"     , \"jsonrpc\": \"2.0\"     }");
     try testMessageExpectError(error.DuplicateField, "{ \"id\": 5                , \"id\": 5                }");
     try testMessageExpectError(error.DuplicateField, "{ \"method\": \"shutdown\" , \"method\": \"shutdown\" }");
@@ -2967,20 +2955,20 @@ test ParamsType {
     }
 }
 
-const request_method_set: parser.StaticStringMap(void) = blk: {
+const request_method_set: std.StaticStringMap(void) = blk: {
     var kvs_list: [types.request_metadata.len]struct { []const u8 } = undefined;
     for (types.request_metadata, &kvs_list) |meta, *kv| {
         kv.* = .{meta.method};
     }
-    break :blk parser.staticStringMapInitComptime(void, kvs_list);
+    break :blk .initComptime(kvs_list);
 };
 
-const notification_method_set: parser.StaticStringMap(void) = blk: {
+const notification_method_set: std.StaticStringMap(void) = blk: {
     var kvs_list: [types.notification_metadata.len]struct { []const u8 } = undefined;
     for (types.notification_metadata, &kvs_list) |meta, *kv| {
         kv.* = .{meta.method};
     }
-    break :blk parser.staticStringMapInitComptime(void, kvs_list);
+    break :blk .initComptime(kvs_list);
 };
 
 /// Return whether there is a request with the given method name.
