@@ -156,6 +156,9 @@ pub const JsonRPCMessage = union(enum) {
 
             try stream.endObject();
         }
+
+        pub const jsonParse = {};
+        pub const jsonParseFromValue = {};
     };
 
     pub fn jsonParse(
@@ -919,6 +922,9 @@ pub fn TypedJsonRPCResponse(
             /// The error object in case a request fails.
             @"error": JsonRPCMessage.Response.Error,
         },
+
+        pub const jsonParse = {};
+        pub const jsonParseFromValue = {};
 
         pub fn jsonStringify(response: @This(), stream: anytype) @TypeOf(stream.*).Error!void {
             try stream.beginObject();
