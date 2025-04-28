@@ -1249,10 +1249,10 @@ pub const TransportOverStdio = struct {
         out: std.fs.File,
     },
 
-    pub fn init(in: std.fs.File, out: std.fs.File) TransportOverStdio {
+    pub fn init(read_from: std.fs.File, write_to: std.fs.File) TransportOverStdio {
         return .{ .impl = .{
-            .in = std.io.bufferedReaderSize(512, in.reader()),
-            .out = out,
+            .in = std.io.bufferedReaderSize(512, read_from.reader()),
+            .out = write_to,
         } };
     }
 
