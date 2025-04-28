@@ -913,8 +913,12 @@ pub fn TypedJsonRPCResponse(
         /// It must be the same as the value of the `id` member in the `Request` object.
         /// If there was an error in detecting the id in the `Request` object (e.g. `Error.Code.parse_error`/`Error.Code.invalid_request`), it must be `null`.
         id: ?JsonRPCMessage.ID,
-        /// The result of a request.
-        result: ?Result,
+        result_or_error: union(enum) {
+            /// The result of a request.
+            result: Result,
+            /// The error object in case a request fails.
+            @"error": JsonRPCMessage.Response.Error,
+        },
 
         pub fn jsonStringify(response: @This(), stream: anytype) @TypeOf(stream.*).Error!void {
             try stream.beginObject();
@@ -922,25 +926,17 @@ pub fn TypedJsonRPCResponse(
             try stream.objectField("jsonrpc");
             try stream.write("2.0");
 
-            if (response.id) |id| {
-                try stream.objectField("id");
-                try stream.write(id);
-            } else if (stream.options.emit_null_optional_fields) {
-                try stream.objectField("id");
-                try stream.write(null);
-            }
+            try stream.objectField("id");
+            try stream.write(response.id);
 
-            if (response.result) |result| {
-                try stream.objectField("result");
-                switch (@TypeOf(result)) {
-                    void,
-                    ?void,
-                    => try stream.write(null),
-                    else => try stream.write(result),
-                }
-            } else {
-                try stream.objectField("result");
-                try stream.write(null);
+            switch (response.result_or_error) {
+                inline else => |value, tag| {
+                    try stream.objectField(@tagName(tag));
+                    switch (@TypeOf(value)) {
+                        void, ?void => try stream.write(null),
+                        else => try stream.write(value),
+                    }
+                },
             }
 
             try stream.endObject();
