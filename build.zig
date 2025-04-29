@@ -78,6 +78,52 @@ pub fn build(b: *std.Build) void {
     const docs_step = b.step("docs", "Generate and install documentation");
     docs_step.dependOn(&install_docs.step);
 
+    // ------------------------------- Examples --------------------------------
+
+    const hello_server_exe = b.addExecutable(.{
+        .name = "hello-server",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/hello_server.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "lsp", .module = lsp_module },
+            },
+        }),
+        .use_lld = use_llvm,
+        .use_llvm = use_llvm,
+    });
+    b.installArtifact(hello_server_exe);
+
+    const install_hello_server_step = b.step("install-hello-server", "Install the hello-server example");
+    install_hello_server_step.dependOn(&b.addInstallArtifact(hello_server_exe, .{}).step);
+
+    const hello_client_exe = b.addExecutable(.{
+        .name = "hello-client",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/hello_client.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "lsp", .module = lsp_module },
+            },
+        }),
+        .use_lld = use_llvm,
+        .use_llvm = use_llvm,
+    });
+    b.installArtifact(hello_client_exe);
+
+    const run_hello_client = b.addRunArtifact(hello_client_exe);
+    if (b.args) |args| {
+        run_hello_client.addArgs(args);
+        if (args.len == 1) {
+            run_hello_client.addArtifactArg(hello_server_exe);
+        }
+    }
+
+    const run_hello_client_step = b.step("run-hello-client", "Run the hello-client example");
+    run_hello_client_step.dependOn(&run_hello_client.step);
+
     // --------------------------------- Tests ---------------------------------
 
     const lsp_tests = b.addTest(.{
