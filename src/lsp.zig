@@ -1663,7 +1663,9 @@ pub const MethodWithParams = struct {
     params: ?std.json.Value,
 };
 
-pub const MessageConfig = struct {
+pub const MessageConfig = struct {};
+
+pub fn Message(
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a request message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
@@ -1684,7 +1686,7 @@ pub const MessageConfig = struct {
     ///     other: MethodWithParams,
     /// }
     /// ```
-    RequestParams: type,
+    comptime RequestParams: type,
     /// Must be a tagged union with the following properties:
     ///   - the field name is the method name of a notification message
     ///   - the field type must be the params type of the method (i.e. `ParamsType(field.name)`)
@@ -1705,11 +1707,11 @@ pub const MessageConfig = struct {
     ///     other: MethodWithParams,
     /// }
     /// ```
-    NotificationParams: type,
-};
-
-pub fn Message(comptime config: MessageConfig) type {
-    // TODO validate `config.RequestParams` and `config.NotificationParams`
+    comptime NotificationParams: type,
+    config: MessageConfig,
+) type {
+    _ = config;
+    // TODO validate `RequestParams` and `NotificationParams`
     // This level of comptime should be illegal...
     return union(enum) {
         request: Request,
@@ -1723,7 +1725,7 @@ pub fn Message(comptime config: MessageConfig) type {
             id: JsonRPCMessage.ID,
             params: Params,
 
-            pub const Params = config.RequestParams;
+            pub const Params = RequestParams;
 
             pub const jsonParse = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
             pub const jsonParseFromValue = @compileError("Parsing a Request directly is not implemented! try to parse the Message instead.");
@@ -1747,7 +1749,7 @@ pub fn Message(comptime config: MessageConfig) type {
             comptime jsonrpc: []const u8 = "2.0",
             params: Params,
 
-            pub const Params = config.NotificationParams;
+            pub const Params = NotificationParams;
 
             pub const jsonParse = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
             pub const jsonParseFromValue = @compileError("Parsing a Notification directly is not implemented! try to parse the Message instead.");
@@ -2243,10 +2245,7 @@ const ExampleNotificationMethods = union(enum) {
     other: MethodWithParams,
 };
 
-const ExampleMessage = Message(.{
-    .RequestParams = ExampleRequestMethods,
-    .NotificationParams = ExampleNotificationMethods,
-});
+const ExampleMessage = Message(ExampleRequestMethods, ExampleNotificationMethods, .{});
 
 fn testMessage(message: ExampleMessage, json_message: []const u8) !void {
     try testMessageWithOptions(message, json_message, .{});
