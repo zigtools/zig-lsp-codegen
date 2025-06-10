@@ -1485,6 +1485,168 @@ pub const AnyTransport = struct {
     pub fn writeJsonMessage(transport: AnyTransport, json_message: []const u8) WriteError!void {
         try transport.impl.writeJsonMessage(transport.impl.transport, json_message);
     }
+
+    pub fn writeRequest(
+        transport: AnyTransport,
+        allocator: std.mem.Allocator,
+        id: JsonRPCMessage.ID,
+        method: []const u8,
+        comptime Params: type,
+        params: Params,
+        options: std.json.StringifyOptions,
+    ) (std.mem.Allocator.Error || WriteError)!void {
+        const request: TypedJsonRPCRequest(Params) = .{
+            .id = id,
+            .method = method,
+            .params = params,
+        };
+        const json_message = try std.json.stringifyAlloc(allocator, request, options);
+        defer allocator.free(json_message);
+        try transport.writeJsonMessage(json_message);
+    }
+
+    test writeRequest {
+        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
+        defer testing_transport.deinit();
+
+        try writeRequest(
+            testing_transport.any(),
+            std.testing.allocator,
+            .{ .number = 0 },
+            "my/method",
+            void,
+            {},
+            .{ .whitespace = .indent_2 },
+        );
+
+        try std.testing.expectEqualStrings("Content-Length: 76\r\n\r\n" ++
+            \\{
+            \\  "jsonrpc": "2.0",
+            \\  "id": 0,
+            \\  "method": "my/method",
+            \\  "params": null
+            \\}
+        , testing_transport.getWritten());
+    }
+
+    pub fn writeNotification(
+        transport: AnyTransport,
+        allocator: std.mem.Allocator,
+        method: []const u8,
+        comptime Params: type,
+        params: Params,
+        options: std.json.StringifyOptions,
+    ) (std.mem.Allocator.Error || WriteError)!void {
+        const request: TypedJsonRPCNotification(Params) = .{
+            .method = method,
+            .params = params,
+        };
+        const json_message = try std.json.stringifyAlloc(allocator, request, options);
+        defer allocator.free(json_message);
+        try transport.writeJsonMessage(json_message);
+    }
+
+    test writeNotification {
+        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
+        defer testing_transport.deinit();
+
+        try writeNotification(
+            testing_transport.any(),
+            std.testing.allocator,
+            "my/method",
+            void,
+            {},
+            .{ .whitespace = .indent_2 },
+        );
+
+        try std.testing.expectEqualStrings("Content-Length: 65\r\n\r\n" ++
+            \\{
+            \\  "jsonrpc": "2.0",
+            \\  "method": "my/method",
+            \\  "params": null
+            \\}
+        , testing_transport.getWritten());
+    }
+
+    pub fn writeResponse(
+        transport: AnyTransport,
+        allocator: std.mem.Allocator,
+        id: ?JsonRPCMessage.ID,
+        comptime Result: type,
+        result: Result,
+        options: std.json.StringifyOptions,
+    ) (std.mem.Allocator.Error || WriteError)!void {
+        const request: TypedJsonRPCResponse(Result) = .{
+            .id = id,
+            .result_or_error = .{ .result = result },
+        };
+        const json_message = try std.json.stringifyAlloc(allocator, request, options);
+        defer allocator.free(json_message);
+        try transport.writeJsonMessage(json_message);
+    }
+
+    test writeResponse {
+        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
+        defer testing_transport.deinit();
+
+        try writeResponse(
+            testing_transport.any(),
+            std.testing.allocator,
+            .{ .number = 0 },
+            void,
+            {},
+            .{ .whitespace = .indent_2 },
+        );
+
+        try std.testing.expectEqualStrings("Content-Length: 51\r\n\r\n" ++
+            \\{
+            \\  "jsonrpc": "2.0",
+            \\  "id": 0,
+            \\  "result": null
+            \\}
+        , testing_transport.getWritten());
+    }
+
+    pub fn writeErrorResponse(
+        transport: AnyTransport,
+        allocator: std.mem.Allocator,
+        id: ?JsonRPCMessage.ID,
+        err: JsonRPCMessage.Response.Error,
+        options: std.json.StringifyOptions,
+    ) (std.mem.Allocator.Error || WriteError)!void {
+        const request: TypedJsonRPCResponse(void) = .{
+            .id = id,
+            .result_or_error = .{ .@"error" = err },
+        };
+        const json_message = try std.json.stringifyAlloc(allocator, request, options);
+        defer allocator.free(json_message);
+        try transport.writeJsonMessage(json_message);
+    }
+
+    test writeErrorResponse {
+        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
+        defer testing_transport.deinit();
+
+        try writeErrorResponse(
+            testing_transport.any(),
+            std.testing.allocator,
+            null,
+            .{ .code = .internal_error, .message = "my message" },
+            .{ .whitespace = .indent_2 },
+        );
+
+        try std.testing.expectEqualStrings("Content-Length: 120\r\n\r\n" ++
+            \\{
+            \\  "jsonrpc": "2.0",
+            \\  "id": null,
+            \\  "error": {
+            \\    "code": -32603,
+            \\    "message": "my message",
+            \\    "data": null
+            \\  }
+            \\}
+        , testing_transport.getWritten());
+    }
 };
 
 pub const minimum_logging_buffer_size: usize = 128;

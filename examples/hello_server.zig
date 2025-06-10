@@ -84,26 +84,31 @@ pub fn main() !void {
         // 5. receive `exit` notification
 
         switch (parsed_message.value) {
-            // requests must be send a response back to the client
+            // requests must send a response back to the client
             .request => |request| switch (request.params) {
                 .initialize => |params| {
                     _ = params.capabilities; // the client capabilities tell the server what "features" the client supports
-
-                    try sendResponseToClient(gpa, transport.any(), request.id, lsp.types.InitializeResult{
-                        // the server capabilities tell the client what "features" the server supports
-                        .serverInfo = .{
-                            .name = "hello-server",
+                    try transport.any().writeResponse(
+                        gpa,
+                        request.id,
+                        lsp.types.InitializeResult,
+                        .{
+                            // the server capabilities tell the client what "features" the server supports
+                            .serverInfo = .{
+                                .name = "hello-server",
+                            },
+                            .capabilities = .{
+                                .documentFormattingProvider = .{ .bool = true },
+                            },
                         },
-                        .capabilities = .{
-                            .documentFormattingProvider = .{ .bool = true },
-                        },
-                    });
+                        .{ .emit_null_optional_fields = false },
+                    );
                 },
-                .shutdown => try sendResponseToClient(gpa, transport.any(), request.id, {}),
+                .shutdown => try transport.any().writeResponse(gpa, request.id, void, {}, .{}),
                 .@"textDocument/formatting" => |params| {
                     const source = documents.get(params.textDocument.uri) orelse {
                         // We should read the document from the file system
-                        try sendResponseToClient(gpa, transport.any(), request.id, {});
+                        try transport.any().writeResponse(gpa, request.id, void, {}, .{});
                         continue;
                     };
                     const source_z = try gpa.dupeZ(u8, source);
@@ -113,7 +118,7 @@ pub fn main() !void {
                     defer tree.deinit(gpa);
 
                     if (tree.errors.len != 0) {
-                        try sendResponseToClient(gpa, transport.any(), request.id, {});
+                        try transport.any().writeResponse(gpa, request.id, void, {}, .{});
                         continue;
                     }
 
@@ -121,7 +126,7 @@ pub fn main() !void {
                     defer gpa.free(formatte_source);
 
                     if (std.mem.eql(u8, source, formatte_source)) {
-                        try sendResponseToClient(gpa, transport.any(), request.id, {});
+                        try transport.any().writeResponse(gpa, request.id, void, {}, .{});
                         continue;
                     }
 
@@ -133,9 +138,9 @@ pub fn main() !void {
                         .newText = formatte_source,
                     }};
 
-                    try sendResponseToClient(gpa, transport.any(), request.id, result);
+                    try transport.any().writeResponse(gpa, request.id, []const lsp.types.TextEdit, result, .{});
                 },
-                .other => try sendResponseToClient(gpa, transport.any(), request.id, {}),
+                .other => try transport.any().writeResponse(gpa, request.id, void, {}, .{}),
             },
             .notification => |notification| switch (notification.params) {
                 .initialized => {},
@@ -190,43 +195,3 @@ const NotificationMethods = union(enum) {
     @"textDocument/didClose": lsp.types.DidCloseTextDocumentParams,
     other: lsp.MethodWithParams,
 };
-
-fn sendResponseToClient(allocator: std.mem.Allocator, transport: lsp.AnyTransport, id: lsp.JsonRPCMessage.ID, result: anytype) !void {
-    const response: lsp.TypedJsonRPCResponse(@TypeOf(result)) = .{
-        .id = id,
-        .result_or_error = .{ .result = result },
-    };
-    const message_stringified = try std.json.stringifyAlloc(allocator, response, .{ .emit_null_optional_fields = false });
-    defer allocator.free(message_stringified);
-    try transport.writeJsonMessage(message_stringified);
-}
-
-fn sendRequestToClient(allocator: std.mem.Allocator, transport: lsp.AnyTransport, id: lsp.JsonRPCMessage.ID, method: []const u8, params: anytype) !void {
-    const request: lsp.TypedJsonRPCRequest(@TypeOf(params)) = .{
-        .id = id,
-        .method = method,
-        .params = params,
-    };
-    const message_stringified = try std.json.stringifyAlloc(allocator, request, .{ .emit_null_optional_fields = false });
-    defer allocator.free(message_stringified);
-    try transport.writeJsonMessage(message_stringified);
-}
-
-fn sendNotificationToClient(allocator: std.mem.Allocator, transport: lsp.AnyTransport, method: []const u8, params: anytype) !void {
-    const notification: lsp.TypedJsonRPCNotification(@TypeOf(params)) = .{
-        .method = method,
-        .params = params,
-    };
-    const message_stringified = try std.json.stringifyAlloc(allocator, notification, .{ .emit_null_optional_fields = false });
-    defer allocator.free(message_stringified);
-    try transport.writeJsonMessage(message_stringified);
-}
-
-fn sendResponseErrorToClient(allocator: std.mem.Allocator, transport: lsp.AnyTransport, id: lsp.JsonRPCMessage.ID, err: lsp.JsonRPCMessage.Response.Error) !void {
-    const response: lsp.JsonRPCMessage = .{
-        .response = .{ .id = id, .result_or_error = .{ .@"error" = err } },
-    };
-    const message_stringified = try std.json.stringifyAlloc(allocator, response, .{ .emit_null_optional_fields = false });
-    defer allocator.free(message_stringified);
-    try transport.writeJsonMessage(message_stringified);
-}

@@ -102,11 +102,15 @@ pub fn main() !void {
     // 4. send `shutdown` request and receive response
     // 5. send `exit` notification
 
-    // Send an "initialize" request to the server
-    // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#initialize
-    try sendRequestToServer(gpa, transport.any(), .{ .number = 0 }, "initialize", lsp.types.InitializeParams{
-        .capabilities = .{}, // the client capabilities tell the server what "features" the client supports
-    });
+    std.log.debug("sending 'initialize' request to server", .{});
+    try transport.any().writeRequest(
+        gpa,
+        .{ .number = 0 },
+        "initialize", // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#initialize
+        lsp.types.InitializeParams,
+        .{ .capabilities = .{} }, // the client capabilities tell the server what "features" the client supports
+        .{ .emit_null_optional_fields = false },
+    );
 
     // Wait for the response from the server
     // For the sake of simplicity, we will block here and read messages until the response to our request has been found. All other messages will be ignored.
@@ -134,27 +138,47 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    // Send a "initialized" notification to the server
-    // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#initialized
-    try sendNotificationToServer(gpa, transport.any(), "initialized", lsp.types.InitializedParams{});
+    std.log.debug("sending 'initialized' notification to server", .{});
+    try transport.any().writeNotification(
+        gpa,
+        "initialized", // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#initialized
+        lsp.types.InitializedParams,
+        .{},
+        .{ .emit_null_optional_fields = false },
+    );
 
     // ----------------
 
     std.log.info("This document recently came in by the CLI.", .{});
-    try sendNotificationToServer(gpa, transport.any(), "textDocument/didOpen", lsp.types.DidOpenTextDocumentParams{
-        .textDocument = .{
-            .uri = "untitled:Document", // Usually a file system uri will be provided like 'file:///path/to/main.zig'
-            .languageId = "",
-            .text = input_file,
-            .version = 0,
+    std.log.debug("sending 'textDocument/didOpen' notification to server", .{});
+    try transport.any().writeNotification(
+        gpa,
+        "textDocument/didOpen", // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_didOpen
+        lsp.types.DidOpenTextDocumentParams,
+        .{
+            .textDocument = .{
+                .uri = "untitled:Document", // Usually a file system uri will be provided like 'file:///path/to/main.zig'
+                .languageId = "",
+                .text = input_file,
+                .version = 0,
+            },
         },
-    });
+        .{ .emit_null_optional_fields = false },
+    );
 
     std.log.info("Just to double check, could you verify that it is formatted correctly?", .{});
-    try sendRequestToServer(gpa, transport.any(), .{ .number = 1 }, "textDocument/formatting", lsp.types.DocumentFormattingParams{
-        .textDocument = .{ .uri = "untitled:Document" },
-        .options = .{ .tabSize = 4, .insertSpaces = true },
-    });
+    std.log.debug("sending 'textDocument/formatting' request to server", .{});
+    try transport.any().writeRequest(
+        gpa,
+        .{ .number = 1 },
+        "textDocument/formatting", // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_formatting
+        lsp.types.DocumentFormattingParams,
+        .{
+            .textDocument = .{ .uri = "untitled:Document" },
+            .options = .{ .tabSize = 4, .insertSpaces = true },
+        },
+        .{ .emit_null_optional_fields = false },
+    );
 
     const formatting_response = try readAndIgnoreUntilResponse(gpa, transport.any(), .{ .number = 1 }, "textDocument/formatting");
     defer formatting_response.deinit();
@@ -170,57 +194,28 @@ pub fn main() !void {
 
     std.log.info("Well, thanks for your insight on this. Now get out!", .{});
 
-    // Send a "shutdown" request to the server
-    // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#shutdown
     // Even though this is a request, we do not wait for a response because we are going to close the server anyway.
-    try sendRequestToServer(gpa, transport.any(), .{ .number = 2 }, "shutdown", {});
+    std.log.debug("sending 'shutdown' request to server", .{});
+    try transport.any().writeRequest(
+        gpa,
+        .{ .number = 2 },
+        "shutdown", // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#shutdown
+        void,
+        {},
+        .{ .emit_null_optional_fields = false },
+    );
 
-    // Send a "exit" notification to the server
-    // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#initialized
-    try sendNotificationToServer(gpa, transport.any(), "exit", {});
+    std.log.debug("sending 'exit' notification to server", .{});
+    try transport.any().writeNotification(
+        gpa,
+        "exit", // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#exit
+        void,
+        {},
+        .{ .emit_null_optional_fields = false },
+    );
 
     // The "exit" notification will ask the server to exit its process. Ideally we should wait with a timeout in case the server is not behaving correctly.
     _ = try child_process.wait();
-}
-
-fn sendRequestToServer(
-    allocator: std.mem.Allocator,
-    transport: lsp.AnyTransport,
-    id: lsp.JsonRPCMessage.ID,
-    comptime method: []const u8,
-    params: lsp.ParamsType(method),
-) !void {
-    std.log.debug("sending '{s}' request to server", .{method});
-
-    const request: lsp.TypedJsonRPCRequest(lsp.ParamsType(method)) = .{
-        .id = id,
-        .method = method,
-        .params = params,
-    };
-
-    const request_stringified = try std.json.stringifyAlloc(allocator, request, .{ .emit_null_optional_fields = false });
-    defer allocator.free(request_stringified);
-
-    try transport.writeJsonMessage(request_stringified);
-}
-
-fn sendNotificationToServer(
-    allocator: std.mem.Allocator,
-    transport: lsp.AnyTransport,
-    comptime method: []const u8,
-    params: lsp.ParamsType(method),
-) !void {
-    std.log.debug("sending '{s}' notification to server", .{method});
-
-    const notification: lsp.TypedJsonRPCNotification(lsp.ParamsType(method)) = .{
-        .method = method,
-        .params = params,
-    };
-
-    const notification_stringified = try std.json.stringifyAlloc(allocator, notification, .{ .emit_null_optional_fields = false });
-    defer allocator.free(notification_stringified);
-
-    try transport.writeJsonMessage(notification_stringified);
 }
 
 /// Do not use such a function in an actual implementation.
