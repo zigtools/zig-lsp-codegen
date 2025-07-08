@@ -1,6 +1,6 @@
-//! This file implements an example LSP client.
+//! Implements a LSP client to explain the language server protocol (LSP).
 //!
-//! This example is NOT meant to be a blueprint on how to design an LSP client.
+//! This is NOT meant to be a blueprint on how to design an LSP client.
 //! Instead it meant to showcase the various low-level utilities provided by
 //! this library to LSP client authors.
 //!
@@ -8,15 +8,13 @@
 //! LSP data types) while allowing authors to freely decide on how to
 //! architect their LSP client.
 //!
-//! For detailed information on how the language server protocol works, checkout the official specificiation:
-//! https://microsoft.github.io/language-server-protocol/specifications/specification-current
 //!
 //! The run this example program with the build system, use the following command:
 //! ```
 //! zig build run-hello-client -- path/to/unformatted/file.zig /path/to/zls
 //! ```
 //!
-//! Omitting the arguments to the language server will use `./hello_server.zig` as the langauge server:
+//! Omitting the arguments to the language server will use `./hello_server.zig` as the language server:
 //! ```
 //! zig build run-hello-client -- path/to/unformatted/file.zig
 //! ```
@@ -33,7 +31,7 @@ pub const std_options: std.Options = .{
 };
 
 /// Be aware that the output doesn't clearly show the source (client or server) of the output
-const inherit_langauge_server_stderr: bool = false;
+const show_langauge_server_stderr: bool = false;
 
 const usage =
     \\hello-client
@@ -47,17 +45,6 @@ const usage =
     \\
     \\
 ;
-
-fn fatalWithUsage(comptime format: []const u8, args: anytype) noreturn {
-    std.io.getStdErr().writeAll(usage) catch {};
-    std.log.err(format, args);
-    std.process.exit(1);
-}
-
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    std.process.exit(1);
-}
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
@@ -83,7 +70,7 @@ pub fn main() !void {
     var child_process: std.process.Child = .init(args[2..], gpa);
     child_process.stdin_behavior = .Pipe;
     child_process.stdout_behavior = .Pipe;
-    child_process.stderr_behavior = if (inherit_langauge_server_stderr) .Inherit else .Ignore;
+    child_process.stderr_behavior = if (show_langauge_server_stderr) .Inherit else .Ignore;
 
     child_process.spawn() catch |err| fatal("child process could not be created: {}", .{err});
     child_process.waitForSpawn() catch |err| fatal("child process could not be created: {}", .{err});
@@ -216,6 +203,17 @@ pub fn main() !void {
 
     // The "exit" notification will ask the server to exit its process. Ideally we should wait with a timeout in case the server is not behaving correctly.
     _ = try child_process.wait();
+}
+
+fn fatalWithUsage(comptime format: []const u8, args: anytype) noreturn {
+    std.io.getStdErr().writeAll(usage) catch {};
+    std.log.err(format, args);
+    std.process.exit(1);
+}
+
+fn fatal(comptime format: []const u8, args: anytype) noreturn {
+    std.log.err(format, args);
+    std.process.exit(1);
 }
 
 /// Do not use such a function in an actual implementation.

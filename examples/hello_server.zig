@@ -1,14 +1,21 @@
-//! This file implements an example LSP server.
+//! Implements a language server to explain the protocol.
 //!
-//! For detailed information on how the language server protocol works, checkout the official specificiation:
-//! https://microsoft.github.io/language-server-protocol/specifications/specification-current
+//! This is NOT meant to be a blueprint on how to design an language server.
+//! Instead it meant to showcase the various low-level utilities provided by
+//! this library to language server authors.
 //!
-//! The install this example program with the build system, use the following command:
+//! This library will take care of the tedious boilerplate (stdio, JSON-RPC,
+//! LSP data types) while allowing authors to freely decide on how to
+//! architect their language server.
+//!
+//! Looking for a more out-of-the-box solution? Checkout `my_first_server.zig`
+//!
+//! To install this example program with the build system, use the following command:
 //! ```
 //! zig build install-hello-client
 //! ```
 //!
-//! It cen then be integrating into an existing Editor/Client. Alternatively,
+//! It can then be integrating into an existing Editor/Client. Alternatively,
 //! the './hello_client.zig' example client can be used like this:
 //! ```
 //! zig build run-hello-client -- path/to/unformatted/file.zig
@@ -20,7 +27,7 @@ const builtin = @import("builtin");
 const lsp = @import("lsp");
 
 pub const std_options: std.Options = .{
-    .log_level = std.log.default_level,
+    .log_level = std.log.default_level, // Customize the log level here
 };
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
