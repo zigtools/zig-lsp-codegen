@@ -5,7 +5,7 @@
 
 # Zig LSP Codegen
 
-Generates `std.json` compatible Zig code based on the official [LSP MetaModel](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#metaModel)
+Provides the necessary building blocks to develop Language Server Protocol implementations in Zig.
 
 ## Installation
 
