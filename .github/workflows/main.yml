@@ -43,7 +43,7 @@ jobs:
 
       - name: Collect Coverage
         if: github.repository_owner == 'zigtools' && matrix.os == 'ubuntu-22.04' && matrix.zig-version == 'master'
-        run: zig build coverage --summary all
+        run: zig build coverage -Duse-llvm=false --summary all
 
       - name: Upload coverage reports to Codecov
         if: github.repository_owner == 'zigtools' && matrix.os == 'ubuntu-22.04' && matrix.zig-version == 'master'
