@@ -41,6 +41,9 @@ jobs:
       - name: Run Tests
         run: zig build test --summary all
 
+      - name: Build Examples
+        run: zig build --summary all
+
       - name: Collect Coverage
         if: github.repository_owner == 'zigtools' && matrix.os == 'ubuntu-22.04' && matrix.zig-version == 'master'
         run: zig build coverage -Duse-llvm=false --summary all
