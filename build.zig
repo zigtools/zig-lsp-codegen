@@ -124,6 +124,21 @@ pub fn build(b: *std.Build) void {
     const run_hello_client_step = b.step("run-hello-client", "Run the hello-client example");
     run_hello_client_step.dependOn(&run_hello_client.step);
 
+    const my_first_server = b.addExecutable(.{
+        .name = "my-first-server",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/my_first_server.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "lsp", .module = lsp_module },
+            },
+        }),
+        .use_lld = use_llvm,
+        .use_llvm = use_llvm,
+    });
+    b.installArtifact(my_first_server);
+
     // --------------------------------- Tests ---------------------------------
 
     const lsp_tests = b.addTest(.{

@@ -3,6 +3,7 @@ const std = @import("std");
 pub const types = @import("types");
 pub const parser = @import("parser");
 pub const offsets = @import("offsets.zig");
+pub const basic_server = @import("basic_server.zig");
 
 /// See https://www.jsonrpc.org/specification
 pub const JsonRPCMessage = union(enum) {
