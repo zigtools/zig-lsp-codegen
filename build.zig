@@ -174,7 +174,7 @@ pub fn build(b: *std.Build) void {
         const kcov_collect = std.Build.Step.Run.create(b, "kcov collect coverage");
         kcov_collect.addArg(kcov_bin);
         kcov_collect.addArg("--collect-only");
-        kcov_collect.addPrefixedDirectoryArg("--include-pattern=", b.path("."));
+        kcov_collect.addPrefixedDirectoryArg("--include-path=", b.path("."));
         kcov_merge.addDirectoryArg(kcov_collect.addOutputDirectoryArg(test_artifact.name));
         kcov_collect.addArtifactArg(test_artifact);
         kcov_collect.enableTestRunnerMode();
