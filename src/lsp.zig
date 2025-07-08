@@ -1291,6 +1291,14 @@ pub const TransportOverStdio = struct {
 };
 
 test TransportOverStdio {
+    if (comptime @import("builtin").target.os.tag == .windows and
+        @import("builtin").zig_version.order(std.SemanticVersion.parse("0.15.0-dev.920+b461d07a5") catch unreachable) != .lt)
+    {
+        // https://github.com/ziglang/zig/pull/24146
+        // This would force us to create a different module in the build system just for tests.
+        return error.SkipZigTest;
+    }
+
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
