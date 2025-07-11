@@ -707,23 +707,23 @@ pub const JsonRPCMessage = union(enum) {
     test "emit_null_optional_fields" {
         try std.testing.expectFmt(
             \\{"jsonrpc":"2.0","method":"exit"}
-        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = null } }, .{ .emit_null_optional_fields = false })});
+        , "{f}", .{parser.jsonFmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = null } }, .{ .emit_null_optional_fields = false })});
         try std.testing.expectFmt(
             \\{"jsonrpc":"2.0","method":"exit","params":null}
-        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = null } }, .{ .emit_null_optional_fields = true })});
+        , "{f}", .{parser.jsonFmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = null } }, .{ .emit_null_optional_fields = true })});
         try std.testing.expectFmt(
             \\{"jsonrpc":"2.0","method":"exit","params":null}
-        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = .null } }, .{ .emit_null_optional_fields = false })});
+        , "{f}", .{parser.jsonFmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = .null } }, .{ .emit_null_optional_fields = false })});
         try std.testing.expectFmt(
             \\{"jsonrpc":"2.0","method":"exit","params":null}
-        , "{}", .{std.json.fmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = .null } }, .{ .emit_null_optional_fields = true })});
+        , "{f}", .{parser.jsonFmt(JsonRPCMessage{ .notification = .{ .method = "exit", .params = .null } }, .{ .emit_null_optional_fields = true })});
 
         try std.testing.expectFmt(
             \\{"jsonrpc":"2.0","result":null}
-        , "{}", .{std.json.fmt(JsonRPCMessage{ .response = .{ .id = null, .result_or_error = .{ .result = null } } }, .{ .emit_null_optional_fields = false })});
+        , "{f}", .{parser.jsonFmt(JsonRPCMessage{ .response = .{ .id = null, .result_or_error = .{ .result = null } } }, .{ .emit_null_optional_fields = false })});
         try std.testing.expectFmt(
             \\{"jsonrpc":"2.0","id":null,"result":null}
-        , "{}", .{std.json.fmt(JsonRPCMessage{ .response = .{ .id = null, .result_or_error = .{ .result = null } } }, .{ .emit_null_optional_fields = true })});
+        , "{f}", .{parser.jsonFmt(JsonRPCMessage{ .response = .{ .id = null, .result_or_error = .{ .result = null } } }, .{ .emit_null_optional_fields = true })});
     }
 
     fn testParse(message: []const u8, expected: JsonRPCMessage, parse_options: std.json.ParseOptions) !void {
@@ -872,13 +872,13 @@ test TypedJsonRPCRequest {
 
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","id":42,"method":"name","params":null}
-    , "{}", .{std.json.fmt(Request{ .id = .{ .number = 42 }, .method = "name", .params = null }, .{})});
+    , "{f}", .{parser.jsonFmt(Request{ .id = .{ .number = 42 }, .method = "name", .params = null }, .{})});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","id":"42","method":"name"}
-    , "{}", .{std.json.fmt(Request{ .id = .{ .string = "42" }, .method = "name", .params = null }, .{ .emit_null_optional_fields = false })});
+    , "{f}", .{parser.jsonFmt(Request{ .id = .{ .string = "42" }, .method = "name", .params = null }, .{ .emit_null_optional_fields = false })});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","id":42,"method":"name","params":true}
-    , "{}", .{std.json.fmt(Request{ .id = .{ .number = 42 }, .method = "name", .params = true }, .{})});
+    , "{f}", .{parser.jsonFmt(Request{ .id = .{ .number = 42 }, .method = "name", .params = true }, .{})});
 }
 
 pub fn TypedJsonRPCNotification(
@@ -924,13 +924,13 @@ test TypedJsonRPCNotification {
 
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"name","params":null}
-    , "{}", .{std.json.fmt(Notification{ .method = "name", .params = null }, .{})});
+    , "{f}", .{parser.jsonFmt(Notification{ .method = "name", .params = null }, .{})});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"name"}
-    , "{}", .{std.json.fmt(Notification{ .method = "name", .params = null }, .{ .emit_null_optional_fields = false })});
+    , "{f}", .{parser.jsonFmt(Notification{ .method = "name", .params = null }, .{ .emit_null_optional_fields = false })});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"name","params":true}
-    , "{}", .{std.json.fmt(Notification{ .method = "name", .params = true }, .{})});
+    , "{f}", .{parser.jsonFmt(Notification{ .method = "name", .params = true }, .{})});
 }
 
 pub fn TypedJsonRPCResponse(
@@ -982,13 +982,13 @@ test TypedJsonRPCResponse {
 
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"message","data":null}}
-    , "{}", .{std.json.fmt(Response{
+    , "{f}", .{parser.jsonFmt(Response{
         .id = null,
         .result_or_error = .{ .@"error" = .{ .code = .invalid_request, .message = "message", .data = .null } },
     }, .{})});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","id":5,"result":true}
-    , "{}", .{std.json.fmt(Response{
+    , "{f}", .{parser.jsonFmt(Response{
         .id = .{ .number = 5 },
         .result_or_error = .{ .result = true },
     }, .{})});
@@ -1000,69 +1000,47 @@ test TypedJsonRPCResponse {
 pub const BaseProtocolHeader = struct {
     content_length: usize,
 
-    pub const max_header_length: usize = 1024;
+    pub const minimum_reader_buffer_size: usize = 1024;
 
     pub const ParseError = error{
         EndOfStream,
         /// The message is longer than `std.math.maxInt(usize)`.
         OversizedMessage,
-        /// The header field is longer than `max_header_length`. The ": " doesn't count towards the header field length.
+        /// The header field is longer than buffer size of the `std.io.Reader` which is at least `minimum_reader_buffer_size`.
         OversizedHeaderField,
         /// The header is missing the mandatory `Content-Length` field.
         MissingContentLength,
+        /// The header field `Content-Length` has been specified multiple times.
+        DuplicateContentLength,
         /// The header field value of `Content-Length` is not a valid unsigned integer.
         InvalidContentLength,
         /// The header is ill-formed.
         InvalidHeaderField,
     };
 
-    /// It is strongly recommended to provide a buffering reader because the parser has to read 1-byte at a time.
-    pub inline fn parse(reader: anytype) (@TypeOf(reader).Error || ParseError)!BaseProtocolHeader {
-        return @errorCast(parseAny(reader.any()));
-    }
-
-    /// It is strongly recommended to provide a buffering reader because the parser has to read 1-byte at a time.
-    ///
-    /// Type erased version of `parse`.
-    pub fn parseAny(reader: std.io.AnyReader) (anyerror || ParseError)!BaseProtocolHeader {
+    /// The maximum parsable header field length is controlled by `reader.buffer.len`.
+    /// Asserts that `reader.buffer.len >= minimum_reader_buffer_size`.
+    pub fn parse(reader: *std.io.Reader) (std.io.Reader.Error || ParseError)!BaseProtocolHeader {
+        std.debug.assert(@import("builtin").is_test or reader.buffer.len >= minimum_reader_buffer_size);
         var content_length: ?usize = null;
 
-        outer: while (true) {
-            var maybe_colon_index: ?usize = null;
+        while (true) {
+            var header = reader.takeDelimiterInclusive('\n') catch |err| switch (err) {
+                error.StreamTooLong => return error.OversizedHeaderField,
+                else => |e| return e,
+            };
+            if (!std.mem.endsWith(u8, header, "\r\n")) return error.InvalidHeaderField;
+            header.len -= "\r\n".len;
 
-            var buffer: [max_header_length]u8 = undefined;
-            var buffer_index: usize = 0;
+            if (header.len == 0) break;
 
-            while (true) {
-                const byte: u8 = try reader.readByte();
-                switch (byte) {
-                    '\n' => return error.InvalidHeaderField,
-                    '\r' => {
-                        if (try reader.readByte() != '\n') return error.InvalidHeaderField;
-                        if (buffer_index == 0) break :outer;
-                        break;
-                    },
-                    ':' => {
-                        // The ": " is not being added to the buffer here!
-                        if (try reader.readByte() != ' ') return error.InvalidHeaderField;
-                        if (maybe_colon_index != null) return error.InvalidHeaderField; // duplicate ':'
-                        maybe_colon_index = buffer_index;
-                    },
-                    else => {
-                        if (buffer_index == max_header_length) return error.OversizedHeaderField;
-                        buffer[buffer_index] = byte;
-                        buffer_index += 1;
-                    },
-                }
-            }
+            const colon_index = std.mem.indexOf(u8, header, ": ") orelse return error.InvalidHeaderField;
 
-            const colon_index = maybe_colon_index orelse return error.InvalidHeaderField;
-
-            const header = buffer[0..buffer_index];
             const header_name = header[0..colon_index];
-            const header_value = header[colon_index..];
+            const header_value = header[colon_index + 2 ..];
 
             if (!std.ascii.eqlIgnoreCase(header_name, "content-length")) continue;
+            if (content_length != null) return error.DuplicateContentLength;
 
             content_length = std.fmt.parseUnsigned(usize, header_value, 10) catch |err| switch (err) {
                 error.Overflow => return error.OversizedMessage,
@@ -1084,12 +1062,14 @@ pub const BaseProtocolHeader = struct {
         try expectParseError("\r\n\r\n", error.MissingContentLength);
 
         try expectParseError("content-length: 32\r\n", error.EndOfStream);
+        try expectParseError("content-length: \r\n\r\n", error.InvalidContentLength);
         try expectParseError("content-length 32\r\n\r\n", error.InvalidHeaderField);
         try expectParseError("content-length:32\r\n\r\n", error.InvalidHeaderField);
         try expectParseError("contentLength: 32\r\n\r\n", error.MissingContentLength);
+        try expectParseError("content-length: 32\r\ncontent-length: 32\r\n\r\n", error.DuplicateContentLength);
         try expectParseError("content-length: abababababab\r\n\r\n", error.InvalidContentLength);
+        try expectParseError("content-length: : 32\r\n\r\n", error.InvalidContentLength);
         try expectParseError("content-length: 9999999999999999999999999999999999\r\n\r\n", error.OversizedMessage);
-        try expectParseError("content-length: : 32\r\n\r\n", error.InvalidHeaderField);
 
         try expectParse("content-length: 32\r\n\r\n", .{ .content_length = 32 });
         try expectParse("Content-Length: 32\r\n\r\n", .{ .content_length = 32 });
@@ -1098,412 +1078,135 @@ pub const BaseProtocolHeader = struct {
         try expectParse("Content-Type: impostor\r\ncontent-length: 42\r\n\r\n", .{ .content_length = 42 });
     }
 
-    pub fn format(
-        header: BaseProtocolHeader,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = options;
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, header);
-        try std.fmt.format(out_stream, "Content-Length: {d}\r\n\r\n", .{header.content_length});
+    test "parse with oversized header field" {
+        const stream = struct {
+            fn stream(_: *std.io.Reader, _: *std.io.Writer, _: std.io.Limit) std.io.Reader.StreamError!usize {
+                return error.EndOfStream;
+            }
+        }.stream;
+
+        var buffer: [128]u8 = @splat(0);
+        var reader: std.io.Reader = .{
+            .vtable = &.{
+                .stream = &stream,
+                .discard = undefined,
+            },
+            .buffer = &buffer,
+            .end = buffer.len,
+            .seek = 0,
+        };
+        try std.testing.expectError(error.OversizedHeaderField, parse(&reader));
+    }
+
+    pub fn format(header: BaseProtocolHeader, writer: *std.io.Writer) std.io.Writer.Error!void {
+        try writer.print("Content-Length: {d}\r\n\r\n", .{header.content_length});
     }
 
     test format {
-        try std.testing.expectFmt("Content-Length: 0\r\n\r\n", "{}", .{BaseProtocolHeader{ .content_length = 0 }});
-        try std.testing.expectFmt("Content-Length: 42\r\n\r\n", "{}", .{BaseProtocolHeader{ .content_length = 42 }});
-        try std.testing.expectFmt("Content-Length: 4294967295\r\n\r\n", "{}", .{BaseProtocolHeader{ .content_length = std.math.maxInt(u32) }});
+        try std.testing.expectFmt("Content-Length: 0\r\n\r\n", "{f}", .{BaseProtocolHeader{ .content_length = 0 }});
+        try std.testing.expectFmt("Content-Length: 42\r\n\r\n", "{f}", .{BaseProtocolHeader{ .content_length = 42 }});
+        try std.testing.expectFmt("Content-Length: 4294967295\r\n\r\n", "{f}", .{BaseProtocolHeader{ .content_length = std.math.maxInt(u32) }});
+        if (@sizeOf(usize) == @sizeOf(u64)) {
+            try std.testing.expectFmt("Content-Length: 18446744073709551615\r\n\r\n", "{f}", .{BaseProtocolHeader{ .content_length = std.math.maxInt(usize) }});
+        }
     }
 
     fn expectParse(input: []const u8, expected_header: BaseProtocolHeader) !void {
-        var fbs = std.io.fixedBufferStream(input);
-        const actual_header = try parse(fbs.reader());
+        var reader: std.io.Reader = .fixed(input);
+        const actual_header = try parse(&reader);
         try std.testing.expectEqual(expected_header.content_length, actual_header.content_length);
     }
 
     fn expectParseError(input: []const u8, expected_error: ParseError) !void {
-        var fbs = std.io.fixedBufferStream(input);
-        try std.testing.expectError(expected_error, parse(fbs.reader()));
+        var buffer: [128]u8 = undefined;
+        var reader: std.io.Reader = .fixed(&buffer);
+        reader.end = input.len;
+        @memcpy(buffer[0..input.len], input);
+
+        try std.testing.expectError(expected_error, parse(&reader));
     }
 };
 
-pub const TestingTransport = struct {
-    allocator: std.mem.Allocator,
-    read_buffer: []const u8,
-    read_pos: usize = 0,
-    write_buffer: std.ArrayListUnmanaged(u8) = .{},
+pub const TestingTransport = if (!@import("builtin").is_test) @compileError("Use 'std.io.Reader.fixed' or 'std.io.Writer.Allocating' instead.");
+pub const TransportOverStdio = if (!@import("builtin").is_test) @compileError("Use 'Transport.Stdio' instead.");
+pub const AnyTransport = if (!@import("builtin").is_test) @compileError("Use 'Transport' instead.");
 
-    comptime {
-        std.debug.assert(@import("builtin").is_test);
-    }
+const lsp = @This();
 
-    pub fn initWriteOnly(allocator: std.mem.Allocator) TestingTransport {
-        return .{
-            .allocator = allocator,
-            .read_buffer = &.{},
-        };
-    }
+pub const Transport = struct {
+    vtable: *const VTable,
 
-    pub fn initReadOnly(read_buffer: []const u8) TestingTransport {
-        return .{
-            .allocator = std.testing.failing_allocator,
-            .read_buffer = read_buffer,
-        };
-    }
-
-    pub fn deinit(transport: *TestingTransport) void {
-        transport.write_buffer.deinit(transport.allocator);
-        transport.* = undefined;
-    }
-
-    pub fn getWritten(transport: TestingTransport) []const u8 {
-        return transport.write_buffer.items;
-    }
-
-    pub fn any(transport: *TestingTransport) AnyTransport {
-        return .{ .impl = .{
-            .transport = transport,
-            .readJsonMessage = @ptrCast(&readJsonMessage),
-            .writeJsonMessage = @ptrCast(&writeJsonMessage),
-        } };
-    }
-
-    pub fn readJsonMessage(transport: *TestingTransport, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
-        var fbs = std.io.fixedBufferStream(transport.read_buffer);
-        fbs.pos = transport.read_pos;
-        defer transport.read_pos = fbs.pos;
-
-        const reader = fbs.reader();
-
-        const header = try BaseProtocolHeader.parse(reader);
-
-        const json_message = try allocator.alloc(u8, header.content_length);
-        errdefer allocator.free(json_message);
-
-        try reader.readNoEof(json_message);
-
-        return json_message;
-    }
-
-    test readJsonMessage {
-        var testing_transport: TestingTransport = .initReadOnly("Content-Length: 70\r\n\r\n" ++
-            \\{
-            \\    "jsonrpc": "2.0",
-            \\    "method": "methodName",
-            \\    "params": {}
-            \\}
-        );
-        const json_message = try testing_transport.readJsonMessage(std.testing.allocator);
-        defer std.testing.allocator.free(json_message);
-
-        try std.testing.expectEqualStrings(
-            \\{
-            \\    "jsonrpc": "2.0",
-            \\    "method": "methodName",
-            \\    "params": {}
-            \\}
-        , json_message);
-
-        const result = testing_transport.any().readJsonMessage(std.testing.allocator);
-        if (result) |message| std.testing.allocator.free(message) else |_| {}
-        try std.testing.expectError(error.EndOfStream, result);
-    }
-
-    pub fn writeJsonMessage(transport: *TestingTransport, json_message: []const u8) AnyTransport.WriteError!void {
-        const header: BaseProtocolHeader = .{ .content_length = json_message.len };
-
-        var buffer: [64]u8 = undefined;
-        const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
-
-        transport.write_buffer.appendSlice(transport.allocator, prefix) catch @panic("OOM");
-        transport.write_buffer.appendSlice(transport.allocator, json_message) catch @panic("OOM");
-    }
-
-    test writeJsonMessage {
-        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
-        defer testing_transport.deinit();
-
-        try testing_transport.writeJsonMessage(
-            \\{
-            \\    "jsonrpc": "2.0",
-            \\    "method": "methodName",
-            \\    "params": {}
-            \\}
-        );
-
-        try std.testing.expectEqualStrings("Content-Length: 70\r\n\r\n" ++
-            \\{
-            \\    "jsonrpc": "2.0",
-            \\    "method": "methodName",
-            \\    "params": {}
-            \\}
-        , testing_transport.getWritten());
-    }
-};
-
-pub const TransportOverStdio = struct {
-    impl: struct {
-        in: std.io.BufferedReader(512, std.fs.File.Reader),
-        out: std.fs.File,
-    },
-
-    pub fn init(read_from: std.fs.File, write_to: std.fs.File) TransportOverStdio {
-        return .{ .impl = .{
-            .in = std.io.bufferedReaderSize(512, read_from.reader()),
-            .out = write_to,
-        } };
-    }
-
-    pub fn any(transport: *TransportOverStdio) AnyTransport {
-        return .{ .impl = .{
-            .transport = transport,
-            .readJsonMessage = @ptrCast(&readJsonMessage),
-            .writeJsonMessage = @ptrCast(&writeJsonMessage),
-        } };
-    }
-
-    pub fn readJsonMessage(transport: *TransportOverStdio, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
-        const reader = transport.impl.in.reader().any();
-
-        const header = BaseProtocolHeader.parseAny(reader) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
-
-        const json_message = try allocator.alloc(u8, header.content_length);
-        errdefer allocator.free(json_message);
-
-        reader.readNoEof(json_message) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
-
-        return json_message;
-    }
-
-    pub fn writeJsonMessage(transport: *TransportOverStdio, json_message: []const u8) AnyTransport.WriteError!void {
-        const header: BaseProtocolHeader = .{ .content_length = json_message.len };
-
-        var buffer: [64]u8 = undefined;
-        const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
-
-        var iovecs: [2]std.posix.iovec_const = .{
-            .{ .base = prefix.ptr, .len = prefix.len },
-            .{ .base = json_message.ptr, .len = json_message.len },
-        };
-
-        try transport.impl.out.writevAll(&iovecs);
-    }
-};
-
-test TransportOverStdio {
-    if (comptime @import("builtin").target.os.tag == .windows and
-        @import("builtin").zig_version.order(std.SemanticVersion.parse("0.15.0-dev.920+b461d07a5") catch unreachable) != .lt)
-    {
-        // https://github.com/ziglang/zig/pull/24146
-        // This would force us to create a different module in the build system just for tests.
-        return error.SkipZigTest;
-    }
-
-    var tmp_dir = std.testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    var send_to_client: ?std.fs.File = try tmp_dir.dir.createFile("a", .{});
-    defer if (send_to_client) |file| file.close();
-
-    var send_to_server: ?std.fs.File = try tmp_dir.dir.createFile("b", .{});
-    defer if (send_to_server) |file| file.close();
-
-    const receive_from_server = try tmp_dir.dir.openFile("a", .{});
-    defer receive_from_server.close();
-
-    const receive_from_client = try tmp_dir.dir.openFile("b", .{});
-    defer receive_from_client.close();
-
-    var server_transport = TransportOverStdio.init(receive_from_client, send_to_client.?);
-    var client_transport = TransportOverStdio.init(receive_from_server, send_to_server.?);
-
-    // Server -> Client
-    try server_transport.writeJsonMessage("\"hello from server\"");
-
-    // Client <- Server
-    const message_from_server = try client_transport.readJsonMessage(std.testing.allocator);
-    defer std.testing.allocator.free(message_from_server);
-    try std.testing.expectEqualStrings("\"hello from server\"", message_from_server);
-
-    // Client -> Server
-    try client_transport.any().writeJsonMessage("\"hello from client\"");
-
-    // Server <- Client
-    const message_from_client = try server_transport.readJsonMessage(std.testing.allocator);
-    defer std.testing.allocator.free(message_from_client);
-
-    try std.testing.expectEqualStrings("\"hello from client\"", message_from_client);
-
-    send_to_client.?.close(); // Do not call `server_transport.writeJsonMessage` anymore
-    send_to_client = null;
-
-    send_to_server.?.close(); // Do not call `client_transport.writeJsonMessage` anymore
-    send_to_server = null;
-
-    var buffer: [512]u8 = undefined;
-    try std.testing.expectEqual(0, receive_from_server.read(&buffer));
-    try std.testing.expectEqual(0, receive_from_client.read(&buffer));
-
-    try std.testing.expectError(error.EndOfStream, server_transport.readJsonMessage(std.testing.allocator));
-    try std.testing.expectError(error.EndOfStream, client_transport.readJsonMessage(std.testing.allocator));
-
-    try std.testing.expectError(error.EndOfStream, server_transport.any().readJsonMessage(std.testing.allocator));
-    try std.testing.expectError(error.EndOfStream, client_transport.any().readJsonMessage(std.testing.allocator));
-}
-
-/// This implementation is totally untested and probably completely wrong. Who is going to use this anyway...
-const TransportOverStream = struct {
-    impl: struct {
-        server: std.net.Server,
-        connection: std.net.Server.Connection,
-        buffered_reader: std.io.BufferedReader(512, std.net.Stream.Reader),
-    },
-
-    pub fn initSocket(address: std.net.Address, options: std.net.Address.ListenOptions) (std.net.Address.ListenError || std.net.Server.AcceptError)!TransportOverStream {
-        var server = try address.listen(options);
-        errdefer server.deinit();
-        const connection = try server.accept();
-        errdefer connection.stream.close();
-
-        return .{ .impl = .{
-            .server = server,
-            .connection = connection,
-            .buffered_reader = std.io.bufferedReaderSize(512, connection.stream.reader()),
-        } };
-    }
-
-    pub fn deinit(transport: *TransportOverStream) void {
-        transport.impl.connection.stream.close();
-        transport.impl.server.deinit();
-        transport.* = undefined;
-    }
-
-    pub fn any(transport: *TransportOverStream) AnyTransport {
-        return .{ .impl = .{
-            .transport = transport,
-            .readJsonMessage = @ptrCast(&readJsonMessage),
-            .writeJsonMessage = @ptrCast(&writeJsonMessage),
-        } };
-    }
-
-    pub fn readJsonMessage(transport: *TransportOverStream, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
-        const reader = transport.impl.buffered_reader.reader().any();
-
-        const header = BaseProtocolHeader.parseAny(reader) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
-
-        const json_message = try allocator.alloc(u8, header.content_length);
-        errdefer allocator.free(json_message);
-
-        reader.readNoEof(json_message) catch |err| return @as(AnyTransport.ReadError, @errorCast(err));
-
-        return json_message;
-    }
-
-    pub fn writeJsonMessage(transport: *TransportOverStream, json_message: []const u8) AnyTransport.WriteError!void {
-        const header: BaseProtocolHeader = .{ .content_length = json_message.len };
-
-        var buffer: [64]u8 = undefined;
-        const prefix = std.fmt.bufPrint(&buffer, "{}", .{header}) catch unreachable;
-
-        var iovecs: [2]std.posix.iovec_const = .{
-            .{ .base = prefix.ptr, .len = prefix.len },
-            .{ .base = json_message.ptr, .len = json_message.len },
-        };
-
-        try transport.impl.connection.stream.writevAll(&iovecs);
-    }
-};
-
-pub const ThreadSafeTransportConfig = struct {
-    ChildTransport: type,
-    /// Makes `readJsonMessage` thread-safe.
-    thread_safe_read: bool,
-    /// Makes `writeJsonMessage` thread-safe.
-    thread_safe_write: bool,
-    MutexType: ?type = null,
-};
-
-/// Wraps a non-thread-safe transport and makes it thread-safe.
-pub fn ThreadSafeTransport(config: ThreadSafeTransportConfig) type {
-    return struct {
-        child_transport: config.ChildTransport,
-        in_mutex: @TypeOf(in_mutex_init) = in_mutex_init,
-        out_mutex: @TypeOf(out_mutex_init) = out_mutex_init,
-
-        // Is there any better name of this?
-        const Self = @This();
-
-        pub fn any(transport: *Self) AnyTransport {
-            return .{ .impl = .{
-                .transport = transport,
-                .readJsonMessage = @ptrCast(&readJsonMessage),
-                .writeJsonMessage = @ptrCast(&writeJsonMessage),
-            } };
-        }
-
-        pub fn readJsonMessage(transport: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error || AnyTransport.ReadError)![]u8 {
-            transport.in_mutex.lock();
-            defer transport.in_mutex.unlock();
-
-            return try transport.child_transport.readJsonMessage(allocator);
-        }
-
-        pub fn writeJsonMessage(transport: *Self, json_message: []const u8) AnyTransport.WriteError!void {
-            transport.out_mutex.lock();
-            defer transport.out_mutex.unlock();
-
-            return try transport.child_transport.writeJsonMessage(json_message);
-        }
-
-        const in_mutex_init = if (config.MutexType) |T|
-            T{}
-        else if (config.thread_safe_read)
-            std.Thread.Mutex{}
-        else
-            DummyMutex{};
-
-        const out_mutex_init = if (config.MutexType) |T|
-            T{}
-        else if (config.thread_safe_write)
-            std.Thread.Mutex{}
-        else
-            DummyMutex{};
-
-        const DummyMutex = struct {
-            fn lock(_: *DummyMutex) void {}
-            fn unlock(_: *DummyMutex) void {}
-        };
+    pub const VTable = struct {
+        readJsonMessage: *const fn (transport: *Transport, allocator: std.mem.Allocator) ReadError![]u8,
+        writeJsonMessage: *const fn (transport: *Transport, json_message: []const u8) WriteError!void,
     };
-}
 
-/// A type-erased Transport.
-pub const AnyTransport = struct {
-    impl: struct {
-        transport: *anyopaque,
-        readJsonMessage: *const fn (transport: *anyopaque, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ReadError)![]u8,
-        writeJsonMessage: *const fn (transport: *anyopaque, json_message: []const u8) WriteError!void,
-    },
-
-    pub const ReadError = std.posix.ReadError || error{EndOfStream} || BaseProtocolHeader.ParseError;
+    pub const ReadError = std.posix.ReadError || error{EndOfStream} || BaseProtocolHeader.ParseError || std.mem.Allocator.Error;
     pub const WriteError = std.posix.WriteError;
 
-    pub fn readJsonMessage(transport: AnyTransport, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ReadError)![]u8 {
-        return try transport.impl.readJsonMessage(transport.impl.transport, allocator);
+    pub const Stdio = struct {
+        transport: Transport,
+        reader: std.io.Reader,
+        read_from: std.fs.File,
+        write_to: std.fs.File,
+
+        pub fn init(
+            read_buffer: []u8,
+            read_from: std.fs.File,
+            write_to: std.fs.File,
+        ) Stdio {
+            return .{
+                .transport = .{
+                    .vtable = &.{
+                        .readJsonMessage = &Stdio.readJsonMessage,
+                        .writeJsonMessage = &Stdio.writeJsonMessage,
+                    },
+                },
+                .reader = std.fs.File.Reader.initInterface(read_buffer),
+                .read_from = read_from,
+                .write_to = write_to,
+            };
+        }
+
+        fn readJsonMessage(transport: *Transport, allocator: std.mem.Allocator) ReadError![]u8 {
+            const stdio: *Stdio = @fieldParentPtr("transport", transport);
+            var file_reader: std.fs.File.Reader = .{
+                .file = stdio.read_from,
+                .interface = stdio.reader,
+            };
+            defer stdio.reader = file_reader.interface;
+            return lsp.readJsonMessage(&file_reader.interface, allocator) catch |err| switch (err) {
+                error.ReadFailed => return file_reader.err.?,
+                else => |e| return e,
+            };
+        }
+
+        fn writeJsonMessage(transport: *Transport, json_message: []const u8) WriteError!void {
+            const stdio: *Stdio = @fieldParentPtr("transport", transport);
+            var file_writer = stdio.write_to.writer(&.{});
+            return lsp.writeJsonMessage(&file_writer.interface, json_message) catch |err| switch (err) {
+                error.WriteFailed => return file_writer.err.?,
+            };
+        }
+    };
+
+    pub fn readJsonMessage(transport: *Transport, allocator: std.mem.Allocator) ReadError![]u8 {
+        return try transport.vtable.readJsonMessage(transport, allocator);
     }
 
-    pub fn writeJsonMessage(transport: AnyTransport, json_message: []const u8) WriteError!void {
-        try transport.impl.writeJsonMessage(transport.impl.transport, json_message);
+    pub fn writeJsonMessage(transport: *Transport, json_message: []const u8) WriteError!void {
+        return try transport.vtable.writeJsonMessage(transport, json_message);
     }
 
     pub fn writeRequest(
-        transport: AnyTransport,
+        transport: *Transport,
         allocator: std.mem.Allocator,
         id: JsonRPCMessage.ID,
         method: []const u8,
         comptime Params: type,
         params: Params,
         options: std.json.StringifyOptions,
-    ) (std.mem.Allocator.Error || WriteError)!void {
+    ) (WriteError || std.mem.Allocator.Error)!void {
         const request: TypedJsonRPCRequest(Params) = .{
             .id = id,
             .method = method,
@@ -1514,38 +1217,14 @@ pub const AnyTransport = struct {
         try transport.writeJsonMessage(json_message);
     }
 
-    test writeRequest {
-        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
-        defer testing_transport.deinit();
-
-        try writeRequest(
-            testing_transport.any(),
-            std.testing.allocator,
-            .{ .number = 0 },
-            "my/method",
-            void,
-            {},
-            .{ .whitespace = .indent_2 },
-        );
-
-        try std.testing.expectEqualStrings("Content-Length: 76\r\n\r\n" ++
-            \\{
-            \\  "jsonrpc": "2.0",
-            \\  "id": 0,
-            \\  "method": "my/method",
-            \\  "params": null
-            \\}
-        , testing_transport.getWritten());
-    }
-
     pub fn writeNotification(
-        transport: AnyTransport,
+        transport: *Transport,
         allocator: std.mem.Allocator,
         method: []const u8,
         comptime Params: type,
         params: Params,
         options: std.json.StringifyOptions,
-    ) (std.mem.Allocator.Error || WriteError)!void {
+    ) (WriteError || std.mem.Allocator.Error)!void {
         const request: TypedJsonRPCNotification(Params) = .{
             .method = method,
             .params = params,
@@ -1555,36 +1234,14 @@ pub const AnyTransport = struct {
         try transport.writeJsonMessage(json_message);
     }
 
-    test writeNotification {
-        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
-        defer testing_transport.deinit();
-
-        try writeNotification(
-            testing_transport.any(),
-            std.testing.allocator,
-            "my/method",
-            void,
-            {},
-            .{ .whitespace = .indent_2 },
-        );
-
-        try std.testing.expectEqualStrings("Content-Length: 65\r\n\r\n" ++
-            \\{
-            \\  "jsonrpc": "2.0",
-            \\  "method": "my/method",
-            \\  "params": null
-            \\}
-        , testing_transport.getWritten());
-    }
-
     pub fn writeResponse(
-        transport: AnyTransport,
+        transport: *Transport,
         allocator: std.mem.Allocator,
         id: ?JsonRPCMessage.ID,
         comptime Result: type,
         result: Result,
         options: std.json.StringifyOptions,
-    ) (std.mem.Allocator.Error || WriteError)!void {
+    ) (WriteError || std.mem.Allocator.Error)!void {
         const request: TypedJsonRPCResponse(Result) = .{
             .id = id,
             .result_or_error = .{ .result = result },
@@ -1594,35 +1251,13 @@ pub const AnyTransport = struct {
         try transport.writeJsonMessage(json_message);
     }
 
-    test writeResponse {
-        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
-        defer testing_transport.deinit();
-
-        try writeResponse(
-            testing_transport.any(),
-            std.testing.allocator,
-            .{ .number = 0 },
-            void,
-            {},
-            .{ .whitespace = .indent_2 },
-        );
-
-        try std.testing.expectEqualStrings("Content-Length: 51\r\n\r\n" ++
-            \\{
-            \\  "jsonrpc": "2.0",
-            \\  "id": 0,
-            \\  "result": null
-            \\}
-        , testing_transport.getWritten());
-    }
-
     pub fn writeErrorResponse(
-        transport: AnyTransport,
+        transport: *Transport,
         allocator: std.mem.Allocator,
         id: ?JsonRPCMessage.ID,
         err: JsonRPCMessage.Response.Error,
         options: std.json.StringifyOptions,
-    ) (std.mem.Allocator.Error || WriteError)!void {
+    ) (WriteError || std.mem.Allocator.Error)!void {
         const request: TypedJsonRPCResponse(void) = .{
             .id = id,
             .result_or_error = .{ .@"error" = err },
@@ -1631,32 +1266,270 @@ pub const AnyTransport = struct {
         defer allocator.free(json_message);
         try transport.writeJsonMessage(json_message);
     }
-
-    test writeErrorResponse {
-        var testing_transport: TestingTransport = .initWriteOnly(std.testing.allocator);
-        defer testing_transport.deinit();
-
-        try writeErrorResponse(
-            testing_transport.any(),
-            std.testing.allocator,
-            null,
-            .{ .code = .internal_error, .message = "my message" },
-            .{ .whitespace = .indent_2 },
-        );
-
-        try std.testing.expectEqualStrings("Content-Length: 120\r\n\r\n" ++
-            \\{
-            \\  "jsonrpc": "2.0",
-            \\  "id": null,
-            \\  "error": {
-            \\    "code": -32603,
-            \\    "message": "my message",
-            \\    "data": null
-            \\  }
-            \\}
-        , testing_transport.getWritten());
-    }
 };
+
+pub const ThreadSafeTransportConfig = struct {
+    /// Makes `readJsonMessage` thread-safe.
+    thread_safe_read: bool,
+    /// Makes `writeJsonMessage` thread-safe.
+    thread_safe_write: bool,
+    MutexType: type = std.Thread.Mutex,
+};
+
+/// Wraps a non-thread-safe transport and makes it thread-safe.
+pub fn ThreadSafeTransport(config: ThreadSafeTransportConfig) type {
+    return struct {
+        transport: Transport,
+        child_transport: *Transport,
+        in_mutex: @TypeOf(in_mutex_init) = in_mutex_init,
+        out_mutex: @TypeOf(out_mutex_init) = out_mutex_init,
+
+        // Is there any better name of this?
+        const Self = @This();
+
+        pub fn init(child_transport: *Transport) Self {
+            return .{
+                .transport = .{
+                    .vtable = &.{
+                        .readJsonMessage = Self.readJsonMessage,
+                        .writeJsonMessage = Self.writeJsonMessage,
+                    },
+                },
+                .child_transport = child_transport,
+            };
+        }
+
+        pub fn readJsonMessage(transport: *Transport, allocator: std.mem.Allocator) Transport.ReadError![]u8 {
+            const self: *Self = @fieldParentPtr("transport", transport);
+
+            self.in_mutex.lock();
+            defer self.in_mutex.unlock();
+
+            return try self.child_transport.readJsonMessage(allocator);
+        }
+
+        pub fn writeJsonMessage(transport: *Transport, json_message: []const u8) Transport.WriteError!void {
+            const self: *Self = @fieldParentPtr("transport", transport);
+
+            self.out_mutex.lock();
+            defer self.out_mutex.unlock();
+
+            return try self.child_transport.writeJsonMessage(json_message);
+        }
+
+        const in_mutex_init = if (config.thread_safe_read)
+            config.MutexType{}
+        else
+            DummyMutex{};
+
+        const out_mutex_init = if (config.thread_safe_write)
+            config.MutexType{}
+        else
+            DummyMutex{};
+
+        const DummyMutex = struct {
+            fn lock(_: *DummyMutex) void {}
+            fn unlock(_: *DummyMutex) void {}
+        };
+    };
+}
+
+pub fn readJsonMessage(reader: *std.io.Reader, allocator: std.mem.Allocator) (std.io.Reader.ReadAllocError || BaseProtocolHeader.ParseError)![]u8 {
+    const header: BaseProtocolHeader = try .parse(reader);
+    return try reader.readAlloc(allocator, header.content_length);
+}
+
+test readJsonMessage {
+    var reader: std.io.Reader = .fixed("Content-Length: 2\r\n\r\n{}");
+
+    const json_message = try readJsonMessage(&reader, std.testing.allocator);
+    defer std.testing.allocator.free(json_message);
+
+    try std.testing.expectEqualStrings("{}", json_message);
+}
+
+pub fn writeJsonMessage(writer: *std.io.Writer, json_message: []const u8) std.io.Writer.Error!void {
+    const header: BaseProtocolHeader = .{ .content_length = json_message.len };
+    var buffer: [64]u8 = undefined;
+    const prefix = std.fmt.bufPrint(&buffer, "{f}", .{header}) catch unreachable;
+    var data: [2][]const u8 = .{ prefix, json_message };
+    try writer.writeVecAll(&data);
+    try writer.flush();
+}
+
+test writeJsonMessage {
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+
+    try writeJsonMessage(&aw.writer, "{}");
+    try std.testing.expectEqualStrings("Content-Length: 2\r\n\r\n{}", aw.getWritten());
+}
+
+pub fn writeRequest(
+    writer: *std.io.Writer,
+    allocator: std.mem.Allocator,
+    id: JsonRPCMessage.ID,
+    method: []const u8,
+    comptime Params: type,
+    params: Params,
+    options: std.json.StringifyOptions,
+) (std.io.Writer.Error || std.mem.Allocator.Error)!void {
+    const request: TypedJsonRPCRequest(Params) = .{
+        .id = id,
+        .method = method,
+        .params = params,
+    };
+    const json_message = try std.json.stringifyAlloc(allocator, request, options);
+    defer allocator.free(json_message);
+    try writeJsonMessage(writer, json_message);
+}
+
+test writeRequest {
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    var aw: std.io.Writer.Allocating = .fromArrayList(std.testing.allocator, &buffer);
+    defer aw.deinit();
+
+    try writeRequest(
+        &aw.writer,
+        std.testing.allocator,
+        .{ .number = 0 },
+        "my/method",
+        void,
+        {},
+        .{ .whitespace = .indent_2 },
+    );
+
+    try std.testing.expectEqualStrings("Content-Length: 76\r\n\r\n" ++
+        \\{
+        \\  "jsonrpc": "2.0",
+        \\  "id": 0,
+        \\  "method": "my/method",
+        \\  "params": null
+        \\}
+    , aw.getWritten());
+}
+
+pub fn writeNotification(
+    writer: *std.io.Writer,
+    allocator: std.mem.Allocator,
+    method: []const u8,
+    comptime Params: type,
+    params: Params,
+    options: std.json.StringifyOptions,
+) (std.io.Writer.Error || std.mem.Allocator.Error)!void {
+    const request: TypedJsonRPCNotification(Params) = .{
+        .method = method,
+        .params = params,
+    };
+    const json_message = try std.json.stringifyAlloc(allocator, request, options);
+    defer allocator.free(json_message);
+    try writeJsonMessage(writer, json_message);
+}
+
+test writeNotification {
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    var aw: std.io.Writer.Allocating = .fromArrayList(std.testing.allocator, &buffer);
+    defer aw.deinit();
+
+    try writeNotification(
+        &aw.writer,
+        std.testing.allocator,
+        "my/method",
+        void,
+        {},
+        .{ .whitespace = .indent_2 },
+    );
+
+    try std.testing.expectEqualStrings("Content-Length: 65\r\n\r\n" ++
+        \\{
+        \\  "jsonrpc": "2.0",
+        \\  "method": "my/method",
+        \\  "params": null
+        \\}
+    , aw.getWritten());
+}
+
+pub fn writeResponse(
+    writer: *std.io.Writer,
+    allocator: std.mem.Allocator,
+    id: ?JsonRPCMessage.ID,
+    comptime Result: type,
+    result: Result,
+    options: std.json.StringifyOptions,
+) (std.io.Writer.Error || std.mem.Allocator.Error)!void {
+    const request: TypedJsonRPCResponse(Result) = .{
+        .id = id,
+        .result_or_error = .{ .result = result },
+    };
+    const json_message = try std.json.stringifyAlloc(allocator, request, options);
+    defer allocator.free(json_message);
+    try writeJsonMessage(writer, json_message);
+}
+
+test writeResponse {
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    var aw: std.io.Writer.Allocating = .fromArrayList(std.testing.allocator, &buffer);
+    defer aw.deinit();
+
+    try writeResponse(
+        &aw.writer,
+        std.testing.allocator,
+        .{ .number = 0 },
+        void,
+        {},
+        .{ .whitespace = .indent_2 },
+    );
+
+    try std.testing.expectEqualStrings("Content-Length: 51\r\n\r\n" ++
+        \\{
+        \\  "jsonrpc": "2.0",
+        \\  "id": 0,
+        \\  "result": null
+        \\}
+    , aw.getWritten());
+}
+
+pub fn writeErrorResponse(
+    writer: *std.io.Writer,
+    allocator: std.mem.Allocator,
+    id: ?JsonRPCMessage.ID,
+    err: JsonRPCMessage.Response.Error,
+    options: std.json.StringifyOptions,
+) (std.io.Writer.Error || std.mem.Allocator.Error)!void {
+    const request: TypedJsonRPCResponse(void) = .{
+        .id = id,
+        .result_or_error = .{ .@"error" = err },
+    };
+    const json_message = try std.json.stringifyAlloc(allocator, request, options);
+    defer allocator.free(json_message);
+    try writeJsonMessage(writer, json_message);
+}
+
+test writeErrorResponse {
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    var aw: std.io.Writer.Allocating = .fromArrayList(std.testing.allocator, &buffer);
+    defer aw.deinit();
+
+    try writeErrorResponse(
+        &aw.writer,
+        std.testing.allocator,
+        null,
+        .{ .code = .internal_error, .message = "my message" },
+        .{ .whitespace = .indent_2 },
+    );
+
+    try std.testing.expectEqualStrings("Content-Length: 120\r\n\r\n" ++
+        \\{
+        \\  "jsonrpc": "2.0",
+        \\  "id": null,
+        \\  "error": {
+        \\    "code": -32603,
+        \\    "message": "my message",
+        \\    "data": null
+        \\  }
+        \\}
+    , aw.getWritten());
+}
 
 pub const minimum_logging_buffer_size: usize = 128;
 
@@ -1676,8 +1549,8 @@ pub fn bufPrintLogMessage(
         buffer,
         message_type,
         struct {
-            fn format(writer: std.io.AnyWriter, opaque_params: *const anyopaque) void {
-                std.fmt.format(writer, fmt, @as(*const @TypeOf(args), @alignCast(@ptrCast(opaque_params))).*) catch {};
+            fn format(writer: *std.io.Writer, opaque_params: *const anyopaque) std.io.Writer.Error!void {
+                return writer.print(fmt, @as(*const @TypeOf(args), @alignCast(@ptrCast(opaque_params))).*);
             }
         }.format,
         &args,
@@ -1687,88 +1560,110 @@ pub fn bufPrintLogMessage(
 fn bufPrintLogMessageTypeErased(
     buffer: []u8,
     message_type: types.MessageType,
-    format_fn: *const fn (std.io.AnyWriter, opaque_params: *const anyopaque) void,
+    format_fn: *const fn (*std.io.Writer, opaque_params: *const anyopaque) std.io.Writer.Error!void,
     opaque_params: *const anyopaque,
 ) []u8 {
     std.debug.assert(buffer.len >= minimum_logging_buffer_size);
-    const json_message_suffix: []const u8 = "\"}}";
-    var fbs = std.io.fixedBufferStream(buffer[0 .. buffer.len - json_message_suffix.len]);
 
-    const writer = fbs.writer();
+    var writer: std.io.Writer = .fixed(buffer);
     writer.print(
-        \\{{"jsonrpc":"2.0","method":"window/logMessage","params":{{"type":{},"message":"
-    , .{std.json.fmt(message_type, .{})}) catch unreachable;
+        \\{{"jsonrpc":"2.0","method":"window/logMessage","params":{{"type":{f},"message":"
+    , .{parser.jsonFmt(message_type, .{})}) catch unreachable;
 
-    const json_writer: std.io.Writer(*std.io.FixedBufferStream([]u8), error{NoSpaceLeft}, jsonWrite) = .{
-        .context = &fbs,
+    const json_message_suffix = "\"}}".*;
+    const ellipses = "...".*;
+
+    const no_space_left = no_space_left: {
+        const reserved_trailing_buffer_space = json_message_suffix.len + ellipses.len;
+        writer.buffer.len -= reserved_trailing_buffer_space;
+        defer writer.buffer.len += reserved_trailing_buffer_space;
+
+        var json_transform: JsonTransform = .init(&writer);
+        format_fn(&json_transform.interface, opaque_params) catch break :no_space_left true;
+        break :no_space_left false;
     };
 
-    format_fn(json_writer.any(), opaque_params);
+    if (no_space_left) (writer.writableArray(ellipses.len) catch undefined).* = ellipses;
+    (writer.writableArray(json_message_suffix.len) catch undefined).* = json_message_suffix;
 
-    fbs.buffer = buffer;
-    fbs.writer().writeAll(json_message_suffix) catch unreachable;
-
-    return fbs.getWritten();
+    return writer.buffered();
 }
 
-fn jsonWrite(fbs: *std.io.FixedBufferStream([]u8), bytes: []const u8) error{NoSpaceLeft}!usize {
-    var write_cursor: usize = 0;
-    var i: usize = 0;
-    while (i < bytes.len) : (i += 1) {
-        switch (bytes[i]) {
-            0x20...0x21, 0x23...0x5B, 0x5D...0xFF => {},
-            0x00...0x1F, '\\', '\"' => {
-                try fbsWriteOrEllipses(fbs, bytes[write_cursor..i]);
+/// `std.json.encodeJsonString` but streaming. Write into `interface` and the
+/// escaped JSON string will be written into `out`.
+///
+/// The output will only be written into `out.buffer` and will never be
+/// drained. So it is best used with `std.io.Writer.fixed` to write into a
+/// fixed sized buffer.
+const JsonTransform = struct {
+    out: *std.io.Writer,
+    interface: std.io.Writer,
 
-                // either write an escape code in its entirety or don't at all
-                const pos = fbs.pos;
-                errdefer fbs.pos = pos;
-
-                const writer = fbs.writer();
-
-                switch (bytes[i]) {
-                    '\\' => try writer.writeAll("\\\\"),
-                    '\"' => try writer.writeAll("\\\""),
-                    0x08 => try writer.writeAll("\\b"),
-                    0x0C => try writer.writeAll("\\f"),
-                    '\n' => try writer.writeAll("\\n"),
-                    '\r' => try writer.writeAll("\\r"),
-                    '\t' => try writer.writeAll("\\t"),
-                    else => {
-                        try fbs.writer().writeAll("\\u");
-                        try std.fmt.formatIntValue(bytes[i], "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, fbs.writer());
-                    },
-                }
-
-                write_cursor = i + 1;
+    fn init(out: *std.io.Writer) JsonTransform {
+        return .{
+            .out = out,
+            .interface = .{
+                .vtable = &.{
+                    .drain = drain,
+                    .flush = std.io.Writer.noopFlush,
+                },
+                .buffer = &.{},
             },
+        };
+    }
+
+    fn drain(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+        if (data.len == 0) return 0;
+
+        const json_transform: *JsonTransform = @fieldParentPtr("interface", w);
+        const out = json_transform.out;
+
+        var bytes_written: usize = 0;
+        outer: for (data, 0..) |bytes, i| {
+            const is_last = i == data.len - 1;
+            for (0..if (is_last) splat else 1) |_| {
+                for (bytes) |c| {
+                    switch (c) {
+                        0x20...0x21, 0x23...0x5B, 0x5D...0xFF => {
+                            const buffer = out.unusedCapacitySlice();
+                            if (buffer.len < 1) break :outer;
+                            buffer[0] = c;
+                            out.advance(1);
+                            bytes_written += 1;
+                        },
+                        0x00...0x1F, '\\', '\"' => {
+                            const encoded: [2]u8 = switch (c) {
+                                '\\' => "\\\\".*,
+                                '\"' => "\\\"".*,
+                                0x08 => "\\b".*,
+                                0x0C => "\\f".*,
+                                '\n' => "\\n".*,
+                                '\r' => "\\r".*,
+                                '\t' => "\\t".*,
+                                else => {
+                                    const buffer = out.unusedCapacitySlice();
+                                    if (buffer.len < 6) break :outer;
+
+                                    buffer[0..2].* = "\\u".*;
+                                    const amt = std.fmt.printInt(buffer[2..6], c, 10, .lower, .{ .fill = '0', .width = 4 });
+                                    std.debug.assert(amt == 4);
+                                    out.advance(6);
+                                    bytes_written += 1;
+                                    continue;
+                                },
+                            };
+
+                            (try out.writableArray(encoded.len)).* = encoded;
+                            bytes_written += 1;
+                        },
+                    }
+                }
+            }
         }
+        if (bytes_written == 0) return error.WriteFailed;
+        return bytes_written;
     }
-
-    try fbsWriteOrEllipses(fbs, bytes[write_cursor..]);
-    return bytes.len;
-}
-
-fn fbsWriteOrEllipses(
-    fbs: *std.io.FixedBufferStream([]u8),
-    bytes: []const u8,
-) error{NoSpaceLeft}!void {
-    const ellipses: []const u8 = "...";
-
-    const pos_before_write = fbs.pos;
-    const amt = fbs.write(bytes) catch 0;
-    if (amt == bytes.len) return;
-
-    // try to move the buffer position back so that we have space for the ellipses
-    fbs.pos = @max(
-        pos_before_write, // make sure that we don't backtrack beyond an escape code
-        @min(fbs.pos, fbs.buffer.len - ellipses.len),
-    );
-    if (fbs.buffer.len - fbs.pos >= ellipses.len) {
-        fbs.writer().writeAll(ellipses) catch unreachable;
-    }
-    return error.NoSpaceLeft;
-}
+};
 
 test bufPrintLogMessage {
     var buffer: [1024]u8 = undefined;
@@ -1822,7 +1717,7 @@ test "bufPrintLogMessage - avoid buffer overflow with escape codes" {
     );
 
     try std.testing.expectEqualStrings(
-        \\{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":42,"message":"\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"}}
+        \\{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":42,"message":"\u0000\u0000\u0000\u0000\u0000\u0000\u0000..."}}
     , json_message);
 }
 
@@ -2524,23 +2419,23 @@ test "Message - ignore_unknown_fields" {
 test "Message - stringify emit_null_optional_fields" {
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"exit"}
-    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .exit } }, .{ .emit_null_optional_fields = false })});
+    , "{f}", .{parser.jsonFmt(ExampleMessage{ .notification = .{ .params = .exit } }, .{ .emit_null_optional_fields = false })});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"exit","params":null}
-    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .exit } }, .{ .emit_null_optional_fields = true })});
+    , "{f}", .{parser.jsonFmt(ExampleMessage{ .notification = .{ .params = .exit } }, .{ .emit_null_optional_fields = true })});
 
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"foo"}
-    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = null } } } }, .{ .emit_null_optional_fields = false })});
+    , "{f}", .{parser.jsonFmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = null } } } }, .{ .emit_null_optional_fields = false })});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"foo","params":null}
-    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = null } } } }, .{ .emit_null_optional_fields = true })});
+    , "{f}", .{parser.jsonFmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = null } } } }, .{ .emit_null_optional_fields = true })});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"foo","params":null}
-    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = .null } } } }, .{ .emit_null_optional_fields = false })});
+    , "{f}", .{parser.jsonFmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = .null } } } }, .{ .emit_null_optional_fields = false })});
     try std.testing.expectFmt(
         \\{"jsonrpc":"2.0","method":"foo","params":null}
-    , "{}", .{std.json.fmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = .null } } } }, .{ .emit_null_optional_fields = true })});
+    , "{f}", .{parser.jsonFmt(ExampleMessage{ .notification = .{ .params = .{ .other = .{ .method = "foo", .params = .null } } } }, .{ .emit_null_optional_fields = true })});
 }
 
 test "Message.Request" {
