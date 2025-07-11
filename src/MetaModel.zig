@@ -91,7 +91,7 @@ pub const MapKeyType = union(enum) {
             kind: []const u8,
             name: []const u8,
         }, allocator, source, options);
-        const NameEnum = std.meta.FieldType(std.meta.FieldType(@This(), .base), .name);
+        const NameEnum = @FieldType(@FieldType(@This(), "base"), "name");
         if (std.mem.eql(u8, result.kind, "base")) {
             return .{ .reference = .{ .kind = result.kind, .name = std.meta.stringToEnum(NameEnum, result.name) orelse return error.InvalidEnumTag } };
         } else if (std.mem.eql(u8, result.kind, "reference")) {
@@ -107,7 +107,7 @@ pub const MapKeyType = union(enum) {
         if (kind != .string) return error.UnexpectedToken;
 
         if (std.mem.eql(u8, kind.string, "base")) {
-            return .{ .base = try std.json.parseFromValueLeaky(std.meta.FieldType(@This(), .base), allocator, source, options) };
+            return .{ .base = try std.json.parseFromValueLeaky(@FieldType(@This(), "base"), allocator, source, options) };
         } else if (std.mem.eql(u8, kind.string, "reference")) {
             return .{ .reference = try std.json.parseFromValueLeaky(ReferenceType, allocator, source, options) };
         }

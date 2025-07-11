@@ -304,7 +304,7 @@ pub const JsonRPCMessage = union(enum) {
             allocator: std.mem.Allocator,
             source: anytype,
             options: std.json.ParseOptions,
-        ) std.json.ParseError(@TypeOf(source.*))!std.meta.FieldType(@This(), field) {
+        ) std.json.ParseError(@TypeOf(source.*))!@FieldType(@This(), @tagName(field)) {
             return switch (field) {
                 .jsonrpc, .method => try std.json.innerParse([]const u8, allocator, source, options),
                 .id => try std.json.innerParse(?JsonRPCMessage.ID, allocator, source, options),
@@ -326,7 +326,7 @@ pub const JsonRPCMessage = union(enum) {
             allocator: std.mem.Allocator,
             source: std.json.Value,
             options: std.json.ParseOptions,
-        ) std.json.ParseFromValueError!std.meta.FieldType(@This(), field) {
+        ) std.json.ParseFromValueError!@FieldType(@This(), @tagName(field)) {
             return switch (field) {
                 .jsonrpc, .method => try std.json.innerParseFromValue([]const u8, allocator, source, options),
                 .id => try std.json.innerParseFromValue(?JsonRPCMessage.ID, allocator, source, options),
