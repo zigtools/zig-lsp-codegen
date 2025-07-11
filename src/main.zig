@@ -2,10 +2,10 @@ const std = @import("std");
 const MetaModel = @import("MetaModel.zig");
 
 pub fn main() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = general_purpose_allocator.deinit();
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
 
-    const gpa = general_purpose_allocator.allocator();
+    const gpa = debug_allocator.allocator();
 
     var arg_it = try std.process.ArgIterator.initWithAllocator(gpa);
     defer arg_it.deinit();
