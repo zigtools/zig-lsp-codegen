@@ -7,18 +7,18 @@ pub fn main() !void {
 
     const gpa = debug_allocator.allocator();
 
-    var arg_it = try std.process.ArgIterator.initWithAllocator(gpa);
+    var arg_it: std.process.ArgIterator = try .initWithAllocator(gpa);
     defer arg_it.deinit();
 
     _ = arg_it.skip(); // skip self exe
 
-    const out_file_path = try gpa.dupe(u8, arg_it.next() orelse std.debug.panic("second argument must be the output path to the generated zig code", .{}));
+    const out_file_path = try gpa.dupe(u8, arg_it.next() orelse std.process.fatal("second argument must be the output path to the generated zig code", .{}));
     defer gpa.free(out_file_path);
 
     const parsed_meta_model = try std.json.parseFromSlice(MetaModel, gpa, @embedFile("meta-model"), .{});
     defer parsed_meta_model.deinit();
 
-    var buffer = std.ArrayListUnmanaged(u8){};
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer buffer.deinit(gpa);
 
     @setEvalBranchQuota(100_000);
@@ -27,7 +27,7 @@ pub fn main() !void {
     const source = try buffer.toOwnedSliceSentinel(gpa, 0);
     defer gpa.free(source);
 
-    var zig_tree = try std.zig.Ast.parse(gpa, source, .zig);
+    var zig_tree: std.zig.Ast = try .parse(gpa, source, .zig);
     defer zig_tree.deinit(gpa);
 
     const output_source = if (zig_tree.errors.len != 0) blk: {
