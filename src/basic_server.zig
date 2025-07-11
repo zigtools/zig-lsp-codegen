@@ -15,7 +15,7 @@ const types = lsp.types;
 
 pub fn run(
     allocator: std.mem.Allocator,
-    transport: lsp.AnyTransport,
+    transport: *lsp.Transport,
     /// Must be a pointer to a container type (e.g. `struct`) that implements
     /// the desired LSP methods.
     ///

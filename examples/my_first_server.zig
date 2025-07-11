@@ -17,14 +17,16 @@ pub fn main() !void {
     };
 
     // language server typically communicate over stdio (stdin and stdout)
-    var transport: lsp.TransportOverStdio = .init(std.io.getStdIn(), std.io.getStdOut());
+    var read_buffer: [256]u8 = undefined;
+    var stdio_transport: lsp.Transport.Stdio = .init(&read_buffer, .stdin(), .stdout());
+    const transport: *lsp.Transport = &stdio_transport.transport;
 
     var handler: Handler = .init(gpa);
     defer handler.deinit();
 
     try lsp.basic_server.run(
         gpa,
-        transport.any(),
+        transport,
         &handler,
         std.log.err,
     );

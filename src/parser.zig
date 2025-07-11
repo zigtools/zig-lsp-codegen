@@ -2,6 +2,26 @@
 
 const std = @import("std");
 
+/// Like `std.json.fmt` but supports `std.io.Writer`.
+pub fn jsonFmt(value: anytype, options: std.json.StringifyOptions) std.fmt.Alt(FormatJson(@TypeOf(value)), FormatJson(@TypeOf(value)).format) {
+    return .{ .data = .{ .value = value, .options = options } };
+}
+
+fn FormatJson(comptime T: type) type {
+    return struct {
+        value: T,
+        options: std.json.StringifyOptions,
+
+        pub fn format(data: @This(), writer: *std.io.Writer) std.io.Writer.Error!void {
+            const any_writer: std.io.AnyWriter = .{
+                .context = writer,
+                .writeFn = @ptrCast(&std.io.Writer.write), // cast discards const qualifier but should be fine. I hope
+            };
+            std.json.stringify(data.value, data.options, any_writer) catch |err| return @errorCast(err);
+        }
+    };
+}
+
 pub fn Map(comptime Key: type, comptime Value: type) type {
     if (Key != []const u8) @compileError("TODO support non string Key's");
     return std.json.ArrayHashMap(Value);
@@ -100,8 +120,8 @@ test "UnionParser.jsonStringify" {
         pub const jsonStringify = UnionParser(@This()).jsonStringify;
     };
 
-    try std.testing.expectFmt("5", "{}", .{std.json.fmt(U{ .number = 5 }, .{})});
-    try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(U{ .string = "foo" }, .{})});
+    try std.testing.expectFmt("5", "{f}", .{jsonFmt(U{ .number = 5 }, .{})});
+    try std.testing.expectFmt("\"foo\"", "{f}", .{jsonFmt(U{ .string = "foo" }, .{})});
 }
 
 pub fn EnumCustomStringValues(comptime T: type, comptime contains_empty_enum: bool) type {
@@ -184,11 +204,11 @@ test EnumCustomStringValues {
             pub const jsonStringify = EnumCustomStringValues(@This(), false).jsonStringify;
         };
 
-        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(E{ .foo = {} }, .{})});
-        try std.testing.expectFmt("\"bar\"", "{}", .{std.json.fmt(E{ .bar = {} }, .{})});
-        try std.testing.expectFmt("\"baz\"", "{}", .{std.json.fmt(E{ .baz = {} }, .{})});
-        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(E{ .custom_value = "" }, .{})});
-        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(E{ .custom_value = "boo" }, .{})});
+        try std.testing.expectFmt("\"foo\"", "{f}", .{jsonFmt(E{ .foo = {} }, .{})});
+        try std.testing.expectFmt("\"bar\"", "{f}", .{jsonFmt(E{ .bar = {} }, .{})});
+        try std.testing.expectFmt("\"baz\"", "{f}", .{jsonFmt(E{ .baz = {} }, .{})});
+        try std.testing.expectFmt("\"\"", "{f}", .{jsonFmt(E{ .custom_value = "" }, .{})});
+        try std.testing.expectFmt("\"boo\"", "{f}", .{jsonFmt(E{ .custom_value = "boo" }, .{})});
 
         try expectParseEqual(E, E.foo, "\"foo\"");
         try expectParseEqual(E, E.bar, "\"bar\"");
@@ -219,13 +239,13 @@ test EnumCustomStringValues {
         const boo: E = .{ .unknown_value = "boo" };
         const zoo: E = .{ .unknown_value = "zoo" };
 
-        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(foo, .{})});
-        try std.testing.expectFmt("\"bar\"", "{}", .{std.json.fmt(bar, .{})});
-        try std.testing.expectFmt("\"baz\"", "{}", .{std.json.fmt(baz, .{})});
-        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(empty, .{})});
-        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(custom_empty, .{})});
-        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(boo, .{})});
-        try std.testing.expectFmt("\"zoo\"", "{}", .{std.json.fmt(zoo, .{})});
+        try std.testing.expectFmt("\"foo\"", "{f}", .{jsonFmt(foo, .{})});
+        try std.testing.expectFmt("\"bar\"", "{f}", .{jsonFmt(bar, .{})});
+        try std.testing.expectFmt("\"baz\"", "{f}", .{jsonFmt(baz, .{})});
+        try std.testing.expectFmt("\"\"", "{f}", .{jsonFmt(empty, .{})});
+        try std.testing.expectFmt("\"\"", "{f}", .{jsonFmt(custom_empty, .{})});
+        try std.testing.expectFmt("\"boo\"", "{f}", .{jsonFmt(boo, .{})});
+        try std.testing.expectFmt("\"zoo\"", "{f}", .{jsonFmt(zoo, .{})});
 
         try expectParseEqual(E, foo, "\"foo\"");
         try expectParseEqual(E, bar, "\"bar\"");
@@ -267,10 +287,10 @@ test EnumCustomStringValues {
         const true_empty: E = .{ .custom_value = "" };
         const boo: E = .{ .custom_value = "boo" };
 
-        try std.testing.expectFmt("\"foo\"", "{}", .{std.json.fmt(foo, .{})});
-        try std.testing.expectFmt("\"empty\"", "{}", .{std.json.fmt(empty, .{})});
-        try std.testing.expectFmt("\"\"", "{}", .{std.json.fmt(true_empty, .{})});
-        try std.testing.expectFmt("\"boo\"", "{}", .{std.json.fmt(boo, .{})});
+        try std.testing.expectFmt("\"foo\"", "{f}", .{jsonFmt(foo, .{})});
+        try std.testing.expectFmt("\"empty\"", "{f}", .{jsonFmt(empty, .{})});
+        try std.testing.expectFmt("\"\"", "{f}", .{jsonFmt(true_empty, .{})});
+        try std.testing.expectFmt("\"boo\"", "{f}", .{jsonFmt(boo, .{})});
 
         try expectParseEqual(E, foo, "\"foo\"");
         try expectParseEqual(E, empty, "\"empty\"");
@@ -306,9 +326,9 @@ test EnumStringifyAsInt {
             baz,
             pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
         };
-        try std.testing.expectFmt("0", "{}", .{std.json.fmt(E.foo, .{})});
-        try std.testing.expectFmt("1", "{}", .{std.json.fmt(E.bar, .{})});
-        try std.testing.expectFmt("2", "{}", .{std.json.fmt(E.baz, .{})});
+        try std.testing.expectFmt("0", "{f}", .{jsonFmt(E.foo, .{})});
+        try std.testing.expectFmt("1", "{f}", .{jsonFmt(E.bar, .{})});
+        try std.testing.expectFmt("2", "{f}", .{jsonFmt(E.baz, .{})});
     }
 
     {
@@ -318,9 +338,9 @@ test EnumStringifyAsInt {
             baz = 5,
             pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
         };
-        try std.testing.expectFmt("2", "{}", .{std.json.fmt(E.foo, .{})});
-        try std.testing.expectFmt("3", "{}", .{std.json.fmt(E.bar, .{})});
-        try std.testing.expectFmt("5", "{}", .{std.json.fmt(E.baz, .{})});
+        try std.testing.expectFmt("2", "{f}", .{jsonFmt(E.foo, .{})});
+        try std.testing.expectFmt("3", "{f}", .{jsonFmt(E.bar, .{})});
+        try std.testing.expectFmt("5", "{f}", .{jsonFmt(E.baz, .{})});
     }
 
     {
@@ -331,22 +351,19 @@ test EnumStringifyAsInt {
             _,
             pub const jsonStringify = EnumStringifyAsInt(@This()).jsonStringify;
         };
-        try std.testing.expectFmt("0", "{}", .{std.json.fmt(E.foo, .{})});
-        try std.testing.expectFmt("3", "{}", .{std.json.fmt(E.bar, .{})});
-        try std.testing.expectFmt("4", "{}", .{std.json.fmt(E.baz, .{})});
-        try std.testing.expectFmt("7", "{}", .{std.json.fmt(@as(E, @enumFromInt(7)), .{})});
+        try std.testing.expectFmt("0", "{f}", .{jsonFmt(E.foo, .{})});
+        try std.testing.expectFmt("3", "{f}", .{jsonFmt(E.bar, .{})});
+        try std.testing.expectFmt("4", "{f}", .{jsonFmt(E.baz, .{})});
+        try std.testing.expectFmt("7", "{f}", .{jsonFmt(@as(E, @enumFromInt(7)), .{})});
     }
 }
 
 fn expectParseEqual(comptime T: type, comptime expected: anytype, s: []const u8) !void {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    var arena_allocator: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const std_builtin_type_rename = comptime std.SemanticVersion.parse("0.14.0-dev.1346+31fef6f11") catch unreachable;
-    const error_set_tag = comptime if (@import("builtin").zig_version.order(std_builtin_type_rename) == .lt) .ErrorSet else .error_set;
-
-    if (@typeInfo(@TypeOf(expected)) != error_set_tag) {
+    if (@typeInfo(@TypeOf(expected)) != .error_set) {
         const actual_from_slice = try std.json.parseFromSliceLeaky(T, arena, s, .{});
         try std.testing.expectEqualDeep(@as(T, expected), actual_from_slice);
 

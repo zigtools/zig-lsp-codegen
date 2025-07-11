@@ -44,8 +44,10 @@ pub fn main() !void {
     // Language servers can support multiple communication channels (e.g. stdio, pipes, sockets).
     // See https://microsoft.github.io/language-server-protocol/specifications/specification-current/#implementationConsiderations
     //
-    // The `TransportOverStdio` implements the necessary logic to read and write messages over stdio.
-    var transport: lsp.TransportOverStdio = .init(std.io.getStdIn(), std.io.getStdOut());
+    // The `lsp.Transport.Stdio` implements the necessary logic to read and write messages over stdio.
+    var read_buffer: [256]u8 = undefined;
+    var stdio_transport: lsp.Transport.Stdio = .init(&read_buffer, .stdin(), .stdout());
+    const transport: *lsp.Transport = &stdio_transport.transport;
 
     // keep track of opened documents
     var documents: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
@@ -95,7 +97,7 @@ pub fn main() !void {
             .request => |request| switch (request.params) {
                 .initialize => |params| {
                     _ = params.capabilities; // the client capabilities tell the server what "features" the client supports
-                    try transport.any().writeResponse(
+                    try transport.writeResponse(
                         gpa,
                         request.id,
                         lsp.types.InitializeResult,
@@ -111,11 +113,11 @@ pub fn main() !void {
                         .{ .emit_null_optional_fields = false },
                     );
                 },
-                .shutdown => try transport.any().writeResponse(gpa, request.id, void, {}, .{}),
+                .shutdown => try transport.writeResponse(gpa, request.id, void, {}, .{}),
                 .@"textDocument/formatting" => |params| {
                     const source = documents.get(params.textDocument.uri) orelse {
                         // We should read the document from the file system
-                        try transport.any().writeResponse(gpa, request.id, void, {}, .{});
+                        try transport.writeResponse(gpa, request.id, void, {}, .{});
                         continue;
                     };
                     const source_z = try gpa.dupeZ(u8, source);
@@ -125,7 +127,7 @@ pub fn main() !void {
                     defer tree.deinit(gpa);
 
                     if (tree.errors.len != 0) {
-                        try transport.any().writeResponse(gpa, request.id, void, {}, .{});
+                        try transport.writeResponse(gpa, request.id, void, {}, .{});
                         continue;
                     }
 
@@ -133,7 +135,7 @@ pub fn main() !void {
                     defer gpa.free(formatte_source);
 
                     if (std.mem.eql(u8, source, formatte_source)) {
-                        try transport.any().writeResponse(gpa, request.id, void, {}, .{});
+                        try transport.writeResponse(gpa, request.id, void, {}, .{});
                         continue;
                     }
 
@@ -145,9 +147,9 @@ pub fn main() !void {
                         .newText = formatte_source,
                     }};
 
-                    try transport.any().writeResponse(gpa, request.id, []const lsp.types.TextEdit, result, .{});
+                    try transport.writeResponse(gpa, request.id, []const lsp.types.TextEdit, result, .{});
                 },
-                .other => try transport.any().writeResponse(gpa, request.id, void, {}, .{}),
+                .other => try transport.writeResponse(gpa, request.id, void, {}, .{}),
             },
             .notification => |notification| switch (notification.params) {
                 .initialized => {},
