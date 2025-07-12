@@ -1000,7 +1000,7 @@ test TypedJsonRPCResponse {
 pub const BaseProtocolHeader = struct {
     content_length: usize,
 
-    pub const minimum_reader_buffer_size: usize = 1024;
+    pub const minimum_reader_buffer_size: usize = 128;
 
     pub const ParseError = error{
         EndOfStream,
