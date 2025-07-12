@@ -10,7 +10,7 @@ Provides the necessary building blocks to develop Language Server Protocol imple
 ## Installation
 
 > [!NOTE]
-> The minimum supported Zig version is `0.14.0`.
+> The default branch requires Zig `0.15.0-dev.1018+1a998886c` or later. Checkout the `0.14.x` branch when using Zig 0.14
 
 ```bash
 # Initialize a `zig build` project if you haven't already
